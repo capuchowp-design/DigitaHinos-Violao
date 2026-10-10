@@ -9,3 +9,6 @@ Visualizador MIDI com violão animado: a digitação (casa, dedo da mão esquerd
 
 ## Partitura / PDF
 O PDF pode sair com **tablatura + notação** (padrão), **só tablatura** ou **só notação** (seletor "Formato"). Na tablatura, cada linha é uma corda (a de baixo é a Mi grave) e o número é a casa; em acordes, as casas são escolhidas para ficarem próximas.
+
+## Várias notas ao mesmo tempo
+O violão mostra todas as cordas que soam juntas (baixo + melodia, acordes, dedilhado): cada nota ganha a sua corda, casa e dedo, e a mão direita (p i m a) aparece em cada corda tocada. Na tablatura em PDF, cada nota é impressa uma vez, no ataque.
