@@ -595,6 +595,24 @@ body.light #tmPage{--tm-acc:#1f9d6b;--tm-acc-rgb:31,157,107;--tm-on:#ffffff;
 --fb-cell-hover:#d8c4a8;--insert-btn-border:#cbb698;--insert-btn-color:#8a6f52;--page-label:#8a6f52;--tab-info:#8a6f52;--zoom-label:#8a6f52}
 #tmPage .action-btn.play{background:var(--tm-acc);color:var(--tm-on)}
 #viewScore{background:var(--bg-score)}
+
+/* ===== ACORDES NO EDITOR ===== */
+#tmPage .tab-cell{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
+#chMenu{position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:12px;}
+#chMenu[hidden]{display:none;}
+#chMenu .cm-sheet{background:var(--bg-section);color:var(--color-text);border:1px solid var(--border-main);border-radius:14px;width:min(360px,100%);padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px;box-shadow:0 18px 60px rgba(0,0,0,.5);}
+#chMenu h4{font-size:14px;font-weight:700;}
+#chMenu .cm-row{display:flex;gap:8px;width:100%;}
+#chMenu select{flex:1;min-width:0;background:var(--bg-input);color:var(--color-text);border:1px solid var(--toggle-border);border-radius:8px;padding:9px 6px;font-size:14px;}
+#chMenu #cmDiag{color:var(--color-text);width:96px;height:108px;}
+#chMenu .cm-hint{font-size:11px;color:var(--color-muted);text-align:center;line-height:1.35;}
+#chMenu .cm-btns{display:flex;flex-direction:column;gap:8px;width:100%;}
+#chMenu .cm-btns .action-btn,#chMenu .cm-btns .insert-btn{width:100%;padding:11px;font-size:13px;}
+#tmPage .ch-cell{overflow:visible;}
+#tmPage .ch-cell.ch-on{background:rgba(255,213,79,.22);border-radius:3px;}
+#tmPage .ch-cell.ch-cover{background:rgba(255,213,79,.07);}
+#tmPage .ch-cell span{position:absolute;left:1px;top:2px;font-size:9px;font-weight:800;color:#ffd54f;white-space:nowrap;z-index:6;pointer-events:none;}
+body.light #tmPage .ch-cell span{color:#8a5a00;}
 </style>
 </head>
 <body>
@@ -773,6 +791,15 @@ body.light #tmPage{--tm-acc:#1f9d6b;--tm-acc-rgb:31,157,107;--tm-on:#ffffff;
     <div class="fretboard-area">
       <div class="fretboard-header"><h3>🎸 Braço (Clique para adicionar notas)</h3></div>
       <div class="fretboard-scroll"><div class="fretboard-grid" id="fretboardGrid"></div></div>
+    </div>
+  </div>
+  <div id="chMenu" hidden>
+    <div class="cm-sheet">
+      <h4 id="cmTitle">Acorde</h4>
+      <div class="cm-row"><select id="cmRoot" aria-label="Nota do acorde"></select><select id="cmQual" aria-label="Tipo do acorde"></select></div>
+      <canvas id="cmDiag" width="192" height="216"></canvas>
+      <div class="cm-hint">O acorde vale a partir desta nota até o próximo acorde. Só a mão da visualização muda; o som continua sendo o das notas.</div>
+      <div class="cm-btns"><button class="action-btn play" id="cmOk">✔ Usar este acorde</button><button class="insert-btn" id="cmDel">✕ Tirar acorde daqui</button><button class="insert-btn" id="cmCancel">Cancelar</button></div>
     </div>
   </div>
   <div class="create-bottombar">
@@ -1237,6 +1264,7 @@ function loadMidiFile(file){
         try {
             const parsed=parseMidiFile(e.target.result);
             if(!parsed.notes.length) throw new Error('Nenhuma nota encontrada');
+            window.vgChordTL=[];
             applyNotes(parsed.notes, parsed.duration);
             toast(`Carregado! ${state.totalNotes} notas`, 'success');
         } catch(err){ toast('Erro: '+err.message); state.midiLoaded=false; }
@@ -1290,9 +1318,14 @@ async function startPlayback(){
 
     // Schedule all notes relative to Transport start
     state.notes.forEach(note=>{
-        if(note.startTime<offset) return;
-        const tStart=(note.startTime-offset)/spd;
-        const dur=Math.max(0.05, note.duration/spd);
+        let t0=note.startTime, remain=note.duration;
+        if(note.startTime<offset){
+            // baixo contínuo que ainda está soando nesse ponto: toca de novo, só com o que falta
+            if(!note.sus||note.endTime<=offset+0.05) return;
+            t0=offset; remain=note.endTime-offset;
+        }
+        const tStart=(t0-offset)/spd;
+        const dur=Math.max(0.05, remain/spd);
         Tone.Transport.schedule(time=>{
             if(!state.isPlaying||!state.sampler||!state.samplerReady) return;
             try { state.sampler.triggerAttackRelease(nname(note.midi), dur, time, note.velocity); } catch(e){}
@@ -1516,6 +1549,247 @@ function gActiveNotes(act){
     out.forEach(n=>{ n.pw=writtenOf(n.midi); });
     return out.sort((a,b)=>a.pw-b.pw||a.s-b.s);
 }
+// ======================== ACORDES (forma da mão esquerda) ========================
+// Um acorde marcado no editor vale a partir da posição dele até o próximo acorde. Ele NÃO muda o som:
+// só diz como a mão está posicionada. Quem soa são as notas escritas na tablatura.
+const CH_PC=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
+const CH_PT=['Dó','Dó♯','Ré','Mi♭','Mi','Fá','Fá♯','Sol','Lá♭','Lá','Si♭','Si'];
+const CH_Q={maj:{s:'',n:'maior'},m:{s:'m',n:'menor'},'7':{s:'7',n:'com sétima'},m7:{s:'m7',n:'menor com sétima'},maj7:{s:'maj7',n:'com sétima maior'},
+    sus4:{s:'sus4',n:'sus4'},sus2:{s:'sus2',n:'sus2'},dim:{s:'dim',n:'diminuto'},'5':{s:'5',n:'(power chord)'}};
+function chName(ch){ return CH_PC[ch.root]+CH_Q[ch.q].s; }
+function chLong(ch){ return CH_PT[ch.root]+' '+CH_Q[ch.q].n; }
+// formas abertas: [nota(0=Dó), tipo, casas por corda (Mi Lá Ré Sol Si mi), dedos por corda]
+const CH_OPEN_LIST=[
+ [0,'maj','x32010','x32010'],[0,'7','x32310','x32410'],[0,'maj7','x32000','x32000'],
+ [2,'maj','xx0232','xx0132'],[2,'m','xx0231','xx0231'],[2,'7','xx0212','xx0213'],[2,'maj7','xx0222','xx0111'],[2,'m7','xx0211','xx0211'],[2,'sus4','xx0233','xx0134'],[2,'sus2','xx0230','xx0120'],
+ [4,'maj','022100','023100'],[4,'m','022000','023000'],[4,'7','020100','020100'],[4,'m7','020000','020000'],[4,'maj7','021100','021100'],[4,'sus4','022200','023400'],
+ [7,'maj','320003','210003'],[7,'7','320001','320001'],[7,'maj7','320002','320001'],
+ [9,'maj','x02220','x01230'],[9,'m','x02210','x02310'],[9,'7','x02020','x02030'],[9,'m7','x02010','x02010'],[9,'maj7','x02120','x02130'],[9,'sus4','x02230','x02340'],[9,'sus2','x02200','x01200'],
+ [11,'7','x21202','x21304']
+];
+// formas com pestana (móveis): "casas relativas / dedos"; a raiz fica na corda Mi grave (forma de Mi) ou Lá (forma de Lá)
+const CH_FORM={
+ E:{maj:['022100','134211'],m:['022000','134111'],'7':['020100','131211'],m7:['020000','131111'],maj7:['021100','142311'],sus4:['022200','133311'],'5':['022xxx','134xxx']},
+ A:{maj:['x02220','x12341'],m:['x02210','x13421'],'7':['x02020','x13141'],m7:['x02010','x13121'],maj7:['x02120','x13241'],sus4:['x02230','x12341'],sus2:['x02200','x13411'],'5':['x022xx','x134xx'],dim:['x0121x','x1243x']}
+};
+const chParse=s=>s.split('').map(ch=>ch==='x'?-1:+ch);
+const CH_OPEN_MAP={}; CH_OPEN_LIST.forEach(o=>{ CH_OPEN_MAP[o[0]+'|'+o[1]]={frets:chParse(o[2]),fing:chParse(o[3]).map(v=>v<0?0:v)}; });
+const chCache={};
+function chVoicing(root,q){
+    const key=root+'|'+q; if(chCache[key]) return chCache[key];
+    let v=CH_OPEN_MAP[key];
+    if(!v){
+        let best=null;
+        [['E',4],['A',9]].forEach(([fn,op])=>{ const f=CH_FORM[fn][q]; if(!f) return; const b=(root-op+12)%12; if(!best||b<best.b) best={b,f}; });
+        if(!best) best={b:0,f:CH_FORM.E.maj};
+        const off=chParse(best.f[0]), fg=chParse(best.f[1]).map(x=>x<0?0:x), b=best.b;
+        const frets=off.map(o=>o<0?-1:b+o);
+        let fing=fg;
+        if(b===0){ // sem pestana: cordas soltas ficam livres e os dedos são numerados pela ordem das casas
+            fing=frets.map(()=>0); let n=1;
+            frets.map((f,i)=>({f,i})).filter(x=>x.f>0).sort((a,c)=>a.f-c.f||a.i-c.i).forEach(x=>{ fing[x.i]=Math.min(4,n++); });
+        }
+        v={frets,fing};
+    }
+    const fr=v.frets.filter(f=>f>0); v.base=fr.length?Math.min(...fr):0;
+    return chCache[key]=v;
+}
+window.vgChordTL=[];
+function vgChordAt(t){ const tl=window.vgChordTL||[]; let r=null; for(let i=0;i<tl.length;i++){ if(tl[i].t<=t+0.001) r=tl[i]; else break; } return r; }
+function vgSetChordTL(){
+    const bpm=parseInt(document.getElementById('scoreBpm').value)||120, spb=60/bpm;
+    window.vgChordTL=scoreChords.map(c=>({t:(c.beat-1)*spb,root:c.root,q:c.q})).sort((a,b)=>a.t-b.t);
+}
+// diagrama pequeno do acorde (usado no editor)
+function chDrawDiagram(cv,voic,label){
+    const c=cv.getContext('2d'), W=cv.width, H=cv.height; c.clearRect(0,0,W,H);
+    const css=getComputedStyle(cv), col=css.color||'#ccc';
+    const x0=22,x1=W-14,y0=34,fh=(H-y0-8)/5, sx=i=>x0+(x1-x0)*i/5;
+    const base=voic.base>3?voic.base:1;
+    c.strokeStyle=col; c.fillStyle=col; c.lineWidth=1; c.globalAlpha=.8;
+    for(let i=0;i<6;i++){ c.beginPath(); c.moveTo(sx(i),y0); c.lineTo(sx(i),y0+5*fh); c.stroke(); }
+    for(let f=0;f<=5;f++){ c.lineWidth=(f===0&&base===1)?3:1; c.beginPath(); c.moveTo(x0,y0+f*fh); c.lineTo(x1,y0+f*fh); c.stroke(); }
+    c.globalAlpha=1; c.font='700 11px Inter,sans-serif'; c.textAlign='center'; c.fillText(label,W/2,11);
+    if(base>1){ c.font='600 10px Inter,sans-serif'; c.textAlign='right'; c.fillText(base+'ª',x0-4,y0+fh*.65); }
+    c.textAlign='center';
+    voic.frets.forEach((f,i)=>{
+        if(f<0){ c.font='700 11px Inter,sans-serif'; c.fillText('×',sx(i),y0-6); return; }
+        if(f===0){ c.beginPath(); c.arc(sx(i),y0-9,3.2,0,7); c.lineWidth=1.2; c.stroke(); return; }
+        const r=f-base+1; if(r<1||r>5) return;
+        c.fillStyle='#ef5350'; c.beginPath(); c.arc(sx(i),y0+(r-.5)*fh,6.2,0,7); c.fill();
+        c.fillStyle='#fff'; c.font='700 9px Inter,sans-serif'; c.fillText(String(voic.fing[i]||''),sx(i),y0+(r-.5)*fh+3.2); c.fillStyle=col;
+    });
+}
+
+// ======================== MODELO DA MÃO ========================
+// Cada dedo (1–4) segura uma casa em uma ou mais cordas (várias cordas = pestana).
+// Com acorde: a mão mantém a forma do acorde; se a nota tocada não faz parte da forma, um dedo livre vai buscá-la
+// (ex.: Dó maior segurando e a nota Ré na casa 3 da corda Si → o mindinho aperta a casa 3 da Si).
+//
+// v7: a mão escolhe os dedos de todas as notas juntas (não uma a uma), procurando o arranjo que MENOS desmancha o acorde:
+//  - a nota que já está na forma do acorde usa o dedo do acorde (custo 0);
+//  - se a corda da nota é ocupada por outro dedo do acorde, esse dedo sai e a nota vai para o dedo que está mais perto
+//    (ex.: Dó maior + Lá casa 2 → o médio sai da Ré e vai para a Lá; o anelar, que estava na Lá casa 3, sai do caminho);
+//  - os dedos do acorde que não atrapalham continuam apoiados no lugar (a mão continua "fazendo o acorde");
+//  - a ordem dos dedos respeita as casas (casa maior = dedo de número maior, sem cruzar).
+const vgHmCache=new Map();
+function vgHandModel(gn,voic){
+    if(!voic) return vgHandModelGreedy(gn,voic);
+    const req=[], playedStr=new Set();
+    gn.forEach(n=>{ playedStr.add(n.s); if(n.fret>0) req.push({s:n.s,fret:n.fret}); });
+    req.sort((a,b)=>a.fret-b.fret||a.s-b.s);
+    const key=voic.frets.join(',')+'/'+voic.fing.join(',')+'|'+gn.map(n=>n.s+':'+n.fret).sort().join(',');
+    let res=vgHmCache.get(key);
+    if(res===undefined){ res=vgHandSolve(req,[...playedStr],voic); if(vgHmCache.size>400) vgHmCache.clear(); vgHmCache.set(key,res); }
+    if(!res) return vgHandModelGreedy(gn,voic);
+    gn.forEach(n=>{ n.f=n.fret>0?(res.byStr[n.s]||n.f):0; });
+    const F=[null,null,null,null,null];
+    for(let k=1;k<=4;k++) if(res.F[k]) F[k]={fret:res.F[k].fret,strs:new Set(res.F[k].strs),bar:res.F[k].strs.length>1};
+    return F;
+}
+// devolve {F:[,{fret,strs[]}...], byStr:{corda:dedo}} ou null se não há arranjo possível
+function vgHandSolve(req,played,voic){
+    const m=req.length, homes=[null,[],[],[],[]];
+    voic.frets.forEach((f,s)=>{ const k=voic.fing[s]; if(f>0&&k>=1&&k<=4) homes[k].push({s,f}); });
+    const base=voic.base>0?voic.base:(m?req[0].fret:1);
+    const playedSet=new Set(played);
+    // dedo "deslocado": a corda dele no acorde agora é tocada em outra casa (ou solta), então ele ficou sem lugar
+    const displaced=k=>homes[k].length>0&&homes[k].every(h=>playedSet.has(h.s)&&!req.some(r=>r.s===h.s&&r.fret===h.f));
+    const noteCost=(r,k)=>{
+        const hs=homes[k];
+        if(hs.some(h=>h.s===r.s&&h.f===r.fret)) return 0;
+        if(hs.length){
+            let d=1e9; hs.forEach(h=>{ d=Math.min(d,2*Math.abs(h.f-r.fret)+Math.abs(h.s-r.s)); });
+            const away=!hs.some(h=>h.s===r.s);
+            return d+(displaced(k)&&away?3:0);
+        }
+        return 1+2*Math.abs(r.fret-(base+k-1));
+    };
+    let best=null, bc=1e9; const cur=new Array(m);
+    (function go(i,cost){
+        if(cost>=bc) return;
+        if(i===m){
+            // pestana (um dedo em várias cordas) custa um pouco, a não ser que já seja assim no acorde
+            let extra=0; const used={};
+            for(let a=0;a<m;a++){ const k=cur[a]; (used[k]=used[k]||[]).push(req[a]); }
+            for(const k in used) used[k].forEach((r,j)=>{ if(j>0&&!homes[k].some(h=>h.s===r.s&&h.f===r.fret)) extra+=2; });
+            if(cost+extra<bc){ bc=cost+extra; best=cur.slice(); }
+            return;
+        }
+        for(let k=1;k<=4;k++){
+            let ok=true;
+            for(let j=0;j<i;j++){ const a=req[j]; if((a.fret<req[i].fret&&cur[j]>=k)||(a.fret>req[i].fret&&cur[j]<=k)){ ok=false; break; } }
+            if(!ok) continue;
+            cur[i]=k; go(i+1,cost+noteCost(req[i],k));
+        }
+    })(0,0);
+    if(m&&!best) return null;
+    const F=[null,null,null,null,null], byStr={};
+    req.forEach((r,i)=>{ const k=best[i]; byStr[r.s]=k; const g=F[k]||(F[k]={fret:r.fret,strs:[]}); g.strs.push(r.s); });
+    // a pestana do acorde continua nas cordas que não são tocadas (se o dedo ficou na mesma casa)
+    for(let k=1;k<=4;k++) if(F[k]&&homes[k].length>1) homes[k].forEach(h=>{ if(h.f===F[k].fret&&!playedSet.has(h.s)&&!F[k].strs.includes(h.s)) F[k].strs.push(h.s); });
+    // dedos do acorde que ficaram livres continuam no lugar, se não atrapalham
+    for(let k=1;k<=4;k++){
+        if(F[k]||!homes[k].length) continue;
+        const keep=homes[k].filter(h=>{
+            if(playedSet.has(h.s)) return false;
+            for(let j=1;j<=4;j++){ if(!F[j]) continue; if((j<k&&F[j].fret>h.f)||(j>k&&F[j].fret<h.f)) return false; }
+            return true;
+        });
+        if(keep.length) F[k]={fret:keep[0].f,strs:keep.filter(h=>h.f===keep[0].f).map(h=>h.s)};
+    }
+    for(let k=1;k<=4;k++) if(F[k]) F[k].strs.sort((a,b)=>a-b);
+    return {F,byStr};
+}
+function vgHandModelGreedy(gn,voic){
+    const F=[null,null,null,null,null];
+    if(!voic){
+        gn.forEach(n=>{ if(n.fret>0&&n.f>=1){ const g=F[n.f]||(F[n.f]={fret:n.fret,strs:new Set()}); if(g.fret===n.fret) g.strs.add(n.s); } });
+        return F;
+    }
+    for(let i=0;i<6;i++){ const f=voic.frets[i], k=voic.fing[i]; if(f>0&&k>=1&&k<=4){ const g=F[k]||(F[k]={fret:f,strs:new Set()}); if(g.fret===f) g.strs.add(i); } }
+    F.forEach(g=>{ if(g) g.bar=g.strs.size>1; });
+    const release=(k,s)=>{ F[k].strs.delete(s); if(!F[k].strs.size) F[k]=null; };
+    gn.slice().sort((a,b)=>a.s-b.s).forEach(n=>{
+        let hk=0; for(let k=1;k<=4;k++) if(F[k]&&F[k].strs.has(n.s)){ hk=k; break; }
+        if(n.fret===0){ if(hk&&!F[hk].bar) release(hk,n.s); n.f=0; return; }
+        if(hk&&F[hk].fret===n.fret){ n.f=hk; return; }
+        if(hk){ if(F[hk].bar){ if(n.fret<F[hk].fret){ n.f=hk; return; } } else release(hk,n.s); }
+        const held=[1,2,3,4].filter(k=>F[k]), free=[1,2,3,4].filter(k=>!F[k]);
+        if(!free.length){ // todos os dedos ocupados: usa o dedo que já está nessa casa (pestana) ou o mais próximo
+            let b=held[0]; held.forEach(k=>{ if(Math.abs(F[k].fret-n.fret)<Math.abs(F[b].fret-n.fret)) b=k; });
+            if(F[b].fret===n.fret){ F[b].strs.add(n.s); F[b].bar=true; } n.f=b; return; }
+        const mx=held.length?Math.max(...held.map(k=>F[k].fret)):0, mn=held.length?Math.min(...held.map(k=>F[k].fret)):99;
+        let bk=free[0], bc=1e9;
+        free.forEach(k=>{
+            let cost=0; held.forEach(j=>{ if((j<k&&F[j].fret>n.fret)||(j>k&&F[j].fret<n.fret)) cost+=10; });
+            if(!held.length) cost+=Math.abs(k-(n.f||1)); else if(n.fret>=mx) cost+=4-k; else if(n.fret<=mn) cost+=k-1;
+            if(cost<bc){ bc=cost; bk=k; }
+        });
+        F[bk]={fret:n.fret,strs:new Set([n.s]),bar:false}; n.f=bk;
+    });
+    return F;
+}
+const vgKS=24, vgHand={palmY:230,palmT:null,last:0,cam:null,f:[null,0,1,2,3].map((v,k)=>k?{x:GL_REST_X(),y:230+(k-2.5)*vgKS,p:0,tx:0,ty:0,tp:0,strs:[],fret:0}:null)};
+function GL_REST_X(){ return 330+78; }
+function vgHandStep(F){
+    const H=vgHand, now=performance.now(), dt=Math.min(.1,Math.max(0,(now-(H.last||now))/1000)); H.last=now;
+    const a=1-Math.exp(-dt*16), NUT=GL.NUT, BR=GL.BR;
+    const pr=[1,2,3,4].filter(k=>F[k]);
+    if(pr.length){
+        let acc=0; pr.forEach(k=>{ const Y=(gFretY(F[k].fret-1)+gFretY(F[k].fret))/2; acc+=Y-(k-2.5)*vgKS*.7; });
+        H.palmT=Math.max(NUT+30,Math.min(BR-70,acc/pr.length));
+    }
+    if(H.palmT==null){ H.palmT=NUT+60; H.palmY=H.palmT; }
+    H.palmY+=(H.palmT-H.palmY)*a;
+    for(let k=1;k<=4;k++){
+        const fk=H.f[k], g=F[k];
+        if(g){
+            const Y=(gFretY(g.fret-1)+gFretY(g.fret))/2, strs=[...g.strs].sort((x,y)=>x-y);
+            fk.strs=strs; fk.fret=g.fret; fk.tx=gStrX((strs[0]+strs[strs.length-1])/2,Y); fk.ty=Y; fk.tp=1;
+        } else { fk.tx=GL.CX+78; fk.ty=H.palmY+(k-2.5)*vgKS; fk.tp=0; }
+        fk.x+=(fk.tx-fk.x)*a; fk.y+=(fk.ty-fk.y)*a; fk.p+=(fk.tp-fk.p)*a;
+    }
+}
+function vgDrawHand(c,light){
+    const H=vgHand, CX=GL.CX, px=CX+112;
+    const sk=light?['#f4cdb0','#e5ae8a','#b97b59']:['#f0c4a4','#dca37e','#a86f50'], out=light?'#6a3a20':'#2a150b';
+    const y0=H.palmY-1.5*vgKS-18, y1=H.palmY+1.5*vgKS+18;
+    c.save(); c.lineJoin='round'; c.lineCap='round';
+    // polegar (atrás do braço; aparece do lado dos graves, com a unha)
+    { const a=[CX-108,H.palmY+8], b=[CX-62,H.palmY+2];
+      c.globalAlpha=.95; c.strokeStyle=out; c.lineWidth=24; c.beginPath(); c.moveTo(a[0],a[1]); c.lineTo(b[0],b[1]); c.stroke();
+      c.strokeStyle=sk[1]; c.lineWidth=20; c.stroke();
+      c.save(); c.translate(0,5); c.strokeStyle=sk[0]; c.globalAlpha=.8; c.lineWidth=7; c.beginPath(); c.moveTo(a[0]+6,a[1]); c.lineTo(b[0]-4,b[1]); c.stroke(); c.restore();
+      c.fillStyle='rgba(255,238,228,.9)'; c.beginPath(); c.ellipse(a[0]+8,a[1],8,6,0,0,7); c.fill(); c.globalAlpha=1; }
+    // palma com volume (só a mão: sem punho nem antebraço)
+    const pg=c.createRadialGradient(px+16,H.palmY-14,6,px+24,H.palmY,78); pg.addColorStop(0,sk[0]); pg.addColorStop(.65,sk[1]); pg.addColorStop(1,sk[2]);
+    c.fillStyle=pg; c.strokeStyle=out; c.lineWidth=3; c.beginPath(); c.roundRect(px-16,y0,104,y1-y0,36); c.fill(); c.stroke();
+    // dedos: do mindinho ao indicador (o indicador fica por cima)
+    for(let k=4;k>=1;k--){
+        const fk=H.f[k], K=[px,H.palmY+(k-2.5)*vgKS], P=[fk.x,fk.y], r=1-fk.p, w=([0,19,19,18,15][k])*(1+.12*r);
+        const Q=[(K[0]+P[0])/2+10+r*8,(K[1]+P[1])/2];
+        const path=()=>{ c.beginPath(); c.moveTo(K[0],K[1]); c.quadraticCurveTo(Q[0],Q[1],P[0],P[1]); };
+        const B=t=>[(1-t)*(1-t)*K[0]+2*(1-t)*t*Q[0]+t*t*P[0],(1-t)*(1-t)*K[1]+2*(1-t)*t*Q[1]+t*t*P[1]];
+        c.globalAlpha=.55+.45*fk.p;
+        c.strokeStyle=out; c.lineWidth=w+4; path(); c.stroke();
+        c.strokeStyle=sk[1]; c.lineWidth=w; path(); c.stroke();
+        c.save(); c.translate(0,w*.2); c.strokeStyle=sk[0]; c.globalAlpha*=.85; c.lineWidth=w*.42; path(); c.stroke(); c.restore();
+        c.save(); c.translate(0,-w*.3); c.strokeStyle=sk[2]; c.globalAlpha*=.5; c.lineWidth=w*.25; path(); c.stroke(); c.restore();
+        // dobras das juntas
+        const dx=P[0]-K[0], dy=P[1]-K[1], L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L;
+        c.strokeStyle=sk[2]; c.lineWidth=1.8; c.globalAlpha=.55*(.55+.45*fk.p);
+        [.38,.68].forEach(t=>{ const b=B(t); c.beginPath(); c.moveTo(b[0]-nx*w*.38,b[1]-ny*w*.38); c.lineTo(b[0]+nx*w*.38,b[1]+ny*w*.38); c.stroke(); });
+        // unha na ponta
+        const tx=P[0]-Q[0], ty=P[1]-Q[1], tl=Math.hypot(tx,ty)||1, ang=Math.atan2(ty,tx);
+        c.globalAlpha=(.55+.45*fk.p)*.95; c.fillStyle='rgba(255,239,230,.92)'; c.strokeStyle=sk[2]; c.lineWidth=1;
+        c.beginPath(); c.ellipse(P[0]-tx/tl*5,P[1]-ty/tl*5,6.5,w*.3,ang,0,7); c.fill(); c.stroke();
+        c.globalAlpha=.55+.45*fk.p; c.fillStyle=sk[1]; c.beginPath(); c.arc(K[0],K[1],9,0,7); c.fill();
+    }
+    c.globalAlpha=1; c.restore();
+}
+
+// ======================== DESENHO DO VIOLÃO (deitado: braço à direita, caixa à esquerda) ========================
 const GL={CX:330,NUT:170,BR:860,FB:630,HX:330,HY:700,HR:44};
 const gFretY=n=>GL.NUT+(GL.BR-GL.NUT)*(1-Math.pow(2,-n/12));
 const gStrX=(i,y)=>{ const t=(y-GL.NUT)/(GL.BR-GL.NUT), a=-50+20*i, b=-65+26*i; return GL.CX+a+(b-a)*t; };
@@ -1536,16 +1810,93 @@ function vgSwitchSampler(){
     state.piano=null; state.samplerReady=!!state.synth; state.sampler=state.synth||null; samplerPromise=null;
     initSampler();
 }
+let vgShowHand=true, vgZoomNeck=false;
+try{ vgShowHand=localStorage.getItem('vgHand')!=='0'; vgZoomNeck=localStorage.getItem('vgZoom')==='1'; }catch(e){}
+// divide a área em: faixa de informações (pauta + nomes) e o violão deitado
+function vgLayout(w,h){
+    const LEN=vgZoomNeck?560:930, THK=420, need=THK*(w-8)/LEN+10;
+    let L={mode:'compact',ix:0,iy:0,iw:0,ih:0,gx:0,gy:0,gw:w,gh:h};
+    if(h>=need+150){ const gR=Math.min(h-150,need*1.35+20), ih=Math.min(250,Math.max(150,h-gR-30)), y0=Math.max(0,(h-ih-gR)*.35); L={mode:'stack',ix:0,iy:y0,iw:w,ih,gx:0,gy:y0+ih,gw:w,gh:gR}; }
+    else if(w>=560){ const iw=Math.min(230,Math.round(w*.3)); L={mode:'wide',ix:0,iy:0,iw,ih:h,gx:iw,gy:0,gw:w-iw,gh:h}; }
+    L.len=LEN; L.thk=THK; L.s=Math.max(.05,Math.min((L.gw-8)/LEN,(L.gh-6)/THK));
+    return L;
+}
+// pauta com a nota escrita (bloco de 155×150 unidades, escalado por k)
+function vgDrawStaff(c,gn,X,Y,k,ac,top,ink){
+    const sp=11, pad=45, Yq=q=>pad+7.5*sp-q*sp/2, sx0=10, sx1=165, nx=88;
+    c.save(); c.translate(X,Y); c.scale(k,k); c.translate(-10,-40);
+    c.beginPath(); c.rect(2,36,172,158); c.clip();
+    c.strokeStyle=ink; c.lineWidth=1.5; c.globalAlpha=0.8;
+    for(let q=0;q<=8;q+=2){ c.beginPath(); c.moveTo(sx0,Yq(q)); c.lineTo(sx1,Yq(q)); c.stroke(); }
+    c.globalAlpha=1;
+    if(gn.length){
+        const qs=gn.map(n=>((Math.floor(n.pw/12)-1)*7+LET[n.pw%12])-30);
+        const lo=Math.min(...qs), hi=Math.max(...qs);
+        c.strokeStyle=ink;
+        for(let q=-2;q>=lo;q-=2){ c.beginPath(); c.moveTo(nx-18,Yq(q)); c.lineTo(nx+32,Yq(q)); c.stroke(); }
+        for(let q=10;q<=hi;q+=2){ c.beginPath(); c.moveTo(nx-18,Yq(q)); c.lineTo(nx+32,Yq(q)); c.stroke(); }
+        let flip=false, lastAcc=-99;
+        gn.forEach((n,i)=>{
+            const pc=n.pw%12, q=qs[i], yy=Yq(q);
+            flip=i>0&&q-qs[i-1]<=1&&!flip;
+            const x=nx+(flip?15:0), col=n.color||ac;
+            c.shadowColor=col; c.shadowBlur=16; c.fillStyle=col; c.beginPath(); c.ellipse(x,yy,8.5,6,-0.3,0,Math.PI*2); c.fill(); c.shadowBlur=0;
+            if(ACC[pc]){ const ax=nx-34-((q-lastAcc)<=3?15:0); c.fillStyle=col; c.font='26px sans-serif'; c.fillText(ACC[pc],ax,yy+9); lastAcc=q; }
+        });
+    } else { c.fillStyle=ink; c.font='700 56px Inter,sans-serif'; c.textAlign='left'; c.fillText('♪',70,125); }
+    c.restore();
+}
+// nome(s) da(s) nota(s), acorde e detalhes de corda/casa/dedo
+function vgDrawText(c,x,y,maxW,k,gn,chord,light,ink){
+    const txt=light?'#14281e':'#fff'; c.textAlign='left'; c.textBaseline='alphabetic';
+    let cy=y;
+    if(chord){ c.font='700 '+Math.round(15*k)+'px Inter,sans-serif'; c.fillStyle=light?'#8a5a00':'#ffd54f'; cy+=15*k; c.fillText('Acorde '+chName(chord)+' · '+chLong(chord),x,cy,maxW); cy+=8*k; }
+    if(!gn.length) return;
+    const one=gn.length===1, fs=one?44:gn.length<=3?30:gn.length<=4?26:22;
+    c.fillStyle=txt; c.font='700 '+Math.round(fs*k)+'px Inter,sans-serif'; cy+=fs*k;
+    c.fillText(gn.slice().reverse().map(n=>SOL[n.pw%12]).join(' '),x,cy,maxW);
+    c.font='600 '+Math.round((one?13:12)*k)+'px Inter,sans-serif'; c.fillStyle=ink;
+    if(one){ const fg=gn[0]; cy+=19*k; c.fillText('corda '+(6-fg.s)+' · '+GSTR_NOTE[fg.s],x,cy,maxW); cy+=18*k; c.fillText(fg.fret?'casa '+fg.fret+' · dedo '+fg.f:'corda solta',x,cy,maxW); }
+    else gn.slice().sort((a,b)=>b.s-a.s).slice(0,6).forEach(n=>{ cy+=17*k; c.fillText(SOL[n.pw%12]+' · '+(6-n.s)+'ª corda · '+(n.fret?'casa '+n.fret+' · dedo '+n.f:'solta'),x,cy,maxW); });
+}
+function vgDrawInfo(c,L,gn,chord,top,ac,light,ink){
+    if(L.mode==='stack'){
+        const k=Math.min(1.5,L.ih/155), X=L.ix+10, Y=L.iy+(L.ih-150*k)/2;
+        vgDrawStaff(c,gn,X,Y,k,ac,top,ink);
+        const tx=X+168*k; vgDrawText(c,tx,L.iy+10,Math.max(60,L.iw-tx-10),Math.min(1.2,k),gn,chord,light,ink);
+    } else if(L.mode==='wide'){
+        const k=Math.min(1,(L.iw-16)/158);
+        vgDrawStaff(c,gn,8,10,k,ac,top,ink);
+        vgDrawText(c,10,10+150*k+2,L.iw-18,Math.min(1,k+.05),gn,chord,light,ink);
+    } else {
+        c.textAlign='left'; c.textBaseline='alphabetic'; let y=20;
+        if(chord){ c.font='700 13px Inter,sans-serif'; c.fillStyle=light?'#8a5a00':'#ffd54f'; c.fillText('Acorde '+chName(chord),10,y,L.gw-120); y+=20; }
+        c.font='700 20px Inter,sans-serif'; c.fillStyle=light?'#14281e':'#fff'; c.fillText(gn.length?gn.slice().reverse().map(n=>SOL[n.pw%12]).join(' '):'♪',10,y,L.gw-120);
+    }
+}
+
 function drawPiano(){
     const R=pianoCanvas.parentElement.getBoundingClientRect(), w=R.width, h=R.height, c=pianoCtx, light=isLight();
     c.clearRect(0,0,w,h);
     const act=state.pianoKeys.filter(k=>k.isActive), top=act[act.length-1], ac=top?top.activeColor:'#6fe0a8';
     const gn=gActiveNotes(act), gOn={}; gn.forEach(n=>{ gOn[n.s]=n; });
-    const ink=light?'#3f6b55':'#9fc4b0', s=Math.min(w/549,h/953), ox=(w-549*s)/2, oy=(h-953*s)/2, pos=[];
+    const chord=vgChordAt(state.currentTime), voic=chord?chVoicing(chord.root,chord.q):null;
+    const F=vgHandModel(gn,voic); vgHandStep(F);
+    const ink=light?'#3f6b55':'#9fc4b0', L=vgLayout(w,h), s=L.s, pos=[];
     const {CX,NUT,BR,FB}=GL, now=performance.now()/1000, steel=VG_TYPE==='aco';
-    if(top){ const g=c.createRadialGradient(ox+CX*s,oy+620*s,0,ox+CX*s,oy+620*s,Math.max(w,h)*0.55); g.addColorStop(0,ac+'44'); g.addColorStop(1,'transparent'); c.fillStyle=g; c.fillRect(0,0,w,h); }
-    c.save(); c.translate(ox,oy); c.scale(s,s);
+    // câmera: no modo "braço ampliado" acompanha a mão
+    let cy=479;
+    if(vgZoomNeck){ const tgt=Math.max(14+L.len/2,Math.min(944-L.len/2,vgHand.palmY+90)); vgHand.cam=vgHand.cam==null?tgt:vgHand.cam+(tgt-vgHand.cam)*.12; cy=vgHand.cam; }
+    const tx=L.gx+L.gw/2+s*cy, ty=L.gy+L.gh/2-s*(CX+25);
+    const sc=(X,Y)=>[tx-Y*s,ty+X*s];
+    if(top){ const [gx0,gy0]=sc(CX,620), g=c.createRadialGradient(gx0,gy0,0,gx0,gy0,Math.max(L.gw,L.gh)*0.55); g.addColorStop(0,ac+'44'); g.addColorStop(1,'transparent'); c.fillStyle=g; c.fillRect(0,0,w,h); }
+    vgDrawInfo(c,L,gn,chord,top,ac,light,ink);
+
+    c.save(); c.beginPath(); c.rect(L.gx,L.gy,L.gw,h-L.gy); c.clip();
+    c.translate(tx,ty); c.scale(s,s); c.rotate(Math.PI/2);
     c.lineJoin='round'; c.lineCap='round';
+    // texto sempre em pé (o desenho está girado 90°); tamanho dado em pixels da tela
+    const TX=(str,x,y,px,col,align,base)=>{ c.save(); c.translate(x,y); c.rotate(-Math.PI/2); c.font='700 '+(px/s)+'px Inter,sans-serif'; c.fillStyle=col; c.textAlign=align||'center'; c.textBaseline=base||'middle'; c.fillText(str,0,0); c.restore(); };
     const edge=light?'#4a2a12':'#120904', eb=light?'#3a2418':'#1d110a', hs=light?'#5a3820':'#2a160b';
     const t0=light?'#c89a52':'#9a6428', t1=light?'#ecc884':'#e0b46a', t2=light?'#b08040':'#8a5420';
     // --- cabeça (headstock) e tarraxas ---
@@ -1589,9 +1940,8 @@ function drawPiano(){
     c.strokeStyle='#cfd2d6'; c.lineWidth=2.2;
     for(let n=1;n<=19;n++){ const y=gFretY(n), hw=gFbHalf(y); c.beginPath(); c.moveTo(CX-hw,y); c.lineTo(CX+hw,y); c.stroke(); }
     c.fillStyle='#efe6d0'; c.strokeStyle='#050302'; c.lineWidth=1.6; c.beginPath(); c.roundRect(CX-60,NUT-8,120,9,2); c.fill(); c.stroke();
-    c.font='600 11px Inter,sans-serif'; c.textAlign='right'; c.fillStyle='rgba(255,255,255,.4)';
-    [3,5,7,9,12,15,17,19].forEach(n=>{ const y=(gFretY(n-1)+gFretY(n))/2; c.fillText(String(n),CX-gFbHalf(y)-8,y+4); });
-    c.textAlign='left';
+    // número das casas, acima do braço
+    [3,5,7,9,12,15,17,19].forEach(n=>{ const y=(gFretY(n-1)+gFretY(n))/2; TX(String(n),CX-gFbHalf(y)-6,y,Math.max(8,Math.min(11,5.5*s*2.2)),'rgba(255,255,255,.5)','center','bottom'); });
     // --- cordas ---
     const bassC=steel?'#c9a35b':'#cfd2d6', trebC=steel?'#d8dde0':'rgba(236,242,230,.9)';
     const SC=[bassC,bassC,bassC,steel?'#d8dde0':trebC,trebC,trebC], SW=steel?[3.8,3.2,2.7,2.1,1.6,1.2]:[3.5,3,2.5,2.1,1.8,1.5];
@@ -1613,87 +1963,78 @@ function drawPiano(){
         for(let y=y0;y<=BR;y+=6){ const x=gStrX(i,y)+amp*Math.sin(Math.PI*(y-y0)/(BR-y0))*Math.sin(now*70); y===y0?c.moveTo(x,y):c.lineTo(x,y); }
         c.lineTo(gStrX(i,BR),BR); c.stroke(); c.restore();
     });
-    c.font='700 11px Inter,sans-serif'; c.textAlign='center';
-    for(let i=0;i<6;i++){ c.fillStyle=gOn[i]?'#fff':'rgba(255,255,255,.5)'; c.fillText(GSTR_LET[i],gStrX(i,NUT),NUT-30); }
-    c.textAlign='left';
-    // --- dedo da mão esquerda (vermelho) ou corda solta ---
-    gn.forEach(fg=>{
-        const hc='#ef5350';
-        if(fg.fret){
-            const ya=gFretY(fg.fret-1), yb=gFretY(fg.fret), Y=(ya+yb)/2, X=gStrX(fg.s,Y), r=Math.max(8.5,Math.min(13,(yb-ya)*.62));
-            c.shadowColor=hc; c.shadowBlur=26; c.fillStyle=hc; c.beginPath(); c.arc(X,Y,r,0,Math.PI*2); c.fill(); c.shadowBlur=0;
-            c.lineWidth=3; c.strokeStyle='#fff'; c.stroke();
-            c.fillStyle='#fff'; c.font='700 '+Math.round(r*1.25)+'px Inter,sans-serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText(String(fg.f),X,Y+1); c.textAlign='left'; c.textBaseline='alphabetic';
-            pos.push([ox+X*s,oy+Y*s,hc]);
+    for(let i=0;i<6;i++) TX(GSTR_LET[i],gStrX(i,NUT),NUT-30,Math.max(7,Math.min(12,s*21)),gOn[i]?'#fff':'rgba(255,255,255,.55)');
+    // --- mão esquerda: mão + dedos (vermelho) / cordas soltas ---
+    if(vgShowHand) vgDrawHand(c,light);
+    const hc='#ef5350', rMin=6.5/s;
+    // marcas do acorde no nut: × corda abafada, ○ corda solta que faz parte do acorde
+    if(voic) voic.frets.forEach((f,i)=>{
+        if(gOn[i]) return; const X=gStrX(i,NUT), Y=NUT-14;
+        if(f<0) TX('×',X,Y,Math.max(11,s*30),'rgba(255,255,255,.55)');
+        else if(f===0){ c.save(); c.strokeStyle='rgba(239,83,80,.65)'; c.lineWidth=2.4; c.beginPath(); c.arc(X,Y,Math.min(9,Math.max(5,rMin*.8)),0,7); c.stroke(); c.restore(); }
+    });
+    [1,2,3,4].forEach(k=>{
+        const g=F[k]; if(!g) return;
+        const fk=vgHand.f[k], ya=gFretY(g.fret-1), yb=gFretY(g.fret), Y=(ya+yb)/2, r=Math.min(12.5,Math.max(8.5,Math.min(13,(yb-ya)*.62),rMin));
+        const strs=[...g.strs].sort((a,b)=>a-b), sounding=strs.some(si=>gOn[si]&&gOn[si].fret===g.fret);
+        c.save(); c.globalAlpha=Math.max(.15,fk.p)*(sounding?(vgShowHand?.85:1):.6);
+        if(strs.length>1){
+            const xa=gStrX(strs[0],Y), xb2=gStrX(strs[strs.length-1],Y);
+            c.strokeStyle='#fff'; c.lineWidth=r*2+4; c.beginPath(); c.moveTo(xa,Y); c.lineTo(xb2,Y); c.stroke();
+            c.shadowColor=hc; c.shadowBlur=sounding?26:8; c.strokeStyle=hc; c.lineWidth=r*2; c.stroke(); c.shadowBlur=0;
+            TX(String(k),(xa+xb2)/2,Y,Math.max(8,r*1.25*s),'#fff');
+            pos.push([...sc((xa+xb2)/2,Y),hc]);
         } else {
-            const X=gStrX(fg.s,NUT), Y=NUT-14;
-            c.shadowColor=hc; c.shadowBlur=22; c.fillStyle='rgba(239,83,80,.18)'; c.beginPath(); c.arc(X,Y,10,0,Math.PI*2); c.fill(); c.shadowBlur=0;
+            const X=gStrX(strs[0],Y);
+            c.shadowColor=hc; c.shadowBlur=sounding?26:8; c.fillStyle=hc; c.beginPath(); c.arc(X,Y,r,0,Math.PI*2); c.fill(); c.shadowBlur=0;
+            c.lineWidth=3; c.strokeStyle='#fff'; c.stroke();
+            TX(String(k),X,Y,Math.max(8,r*1.25*s),'#fff');
+            if(sounding) pos.push([...sc(X,Y),hc]);
+        }
+        c.restore();
+    });
+    gn.forEach(fg=>{
+        if(!fg.fret){
+            const X=gStrX(fg.s,NUT), Y=NUT-14, r=Math.min(12,Math.max(8,rMin*.85));
+            c.shadowColor=hc; c.shadowBlur=22; c.fillStyle='rgba(239,83,80,.18)'; c.beginPath(); c.arc(X,Y,r,0,Math.PI*2); c.fill(); c.shadowBlur=0;
             c.lineWidth=3; c.strokeStyle=hc; c.stroke();
-            c.fillStyle='#fff'; c.font='700 14px Inter,sans-serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText('0',X,Y+1); c.textAlign='left'; c.textBaseline='alphabetic';
-            pos.push([ox+X*s,oy+Y*s,hc]);
+            TX('0',X,Y,Math.max(8,r*1.3*s),'#fff');
+            pos.push([...sc(X,Y),hc]);
         }
         // mão direita (verde): dedo que belisca a corda (p i m a), com onda saindo da corda
-        const py=792, px=gStrX(fg.s,py), ph=(now*1.6)%1;
-        c.save(); c.globalAlpha=.55*(1-ph); c.strokeStyle='#66bb6a'; c.lineWidth=2.5; c.beginPath(); c.arc(px,py,12+ph*22,0,Math.PI*2); c.stroke(); c.restore();
-        c.save(); c.shadowColor='#66bb6a'; c.shadowBlur=18; c.fillStyle='#66bb6a'; c.strokeStyle='#fff'; c.lineWidth=2.4; c.beginPath(); c.arc(px,py,12,0,Math.PI*2); c.fill(); c.stroke(); c.restore();
-        c.fillStyle='#fff'; c.font='italic 700 15px Georgia,serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText(G_RH[fg.s],px,py+1); c.textAlign='left'; c.textBaseline='alphabetic';
+        const py=792, px=gStrX(fg.s,py), ph=(now*1.6)%1, rr=Math.min(13,Math.max(12,rMin));
+        c.save(); c.globalAlpha=.55*(1-ph); c.strokeStyle='#66bb6a'; c.lineWidth=2.5; c.beginPath(); c.arc(px,py,rr+ph*22,0,Math.PI*2); c.stroke(); c.restore();
+        c.save(); c.shadowColor='#66bb6a'; c.shadowBlur=18; c.fillStyle='#66bb6a'; c.strokeStyle='#fff'; c.lineWidth=2.4; c.beginPath(); c.arc(px,py,rr,0,Math.PI*2); c.fill(); c.stroke(); c.restore();
+        TX(G_RH[fg.s],px,py,Math.max(8,rr*1.3*s),'#fff');
     });
-    // --- pauta com a nota escrita + nome ---
-    const sp=11, pad=45, Y=q=>pad+7.5*sp-q*sp/2, sx0=10, sx1=165, nx=88;
-    c.strokeStyle=ink; c.lineWidth=1.5; c.globalAlpha=0.8;
-    for(let q=0;q<=8;q+=2){ c.beginPath(); c.moveTo(sx0,Y(q)); c.lineTo(sx1,Y(q)); c.stroke(); }
-    c.globalAlpha=1; c.fillStyle=top?'#fff':ink; c.font='700 56px Inter,sans-serif'; c.textAlign='left';
-    if(gn.length){
-        const qs=gn.map(n=>((Math.floor(n.pw/12)-1)*7+LET[n.pw%12])-30);
-        const lo=Math.min(...qs), hi=Math.max(...qs);
-        c.strokeStyle=ink;
-        for(let q=-2;q>=lo;q-=2){ c.beginPath(); c.moveTo(nx-18,Y(q)); c.lineTo(nx+32,Y(q)); c.stroke(); }
-        for(let q=10;q<=hi;q+=2){ c.beginPath(); c.moveTo(nx-18,Y(q)); c.lineTo(nx+32,Y(q)); c.stroke(); }
-        let flip=false, lastAcc=-99;
-        gn.forEach((n,i)=>{
-            const pc=n.pw%12, q=qs[i], yy=Y(q);
-            flip=i>0&&q-qs[i-1]<=1&&!flip;
-            const x=nx+(flip?15:0), col=n.color||ac;
-            c.shadowColor=col; c.shadowBlur=16; c.fillStyle=col; c.beginPath(); c.ellipse(x,yy,8.5,6,-0.3,0,Math.PI*2); c.fill(); c.shadowBlur=0;
-            if(ACC[pc]){ const ax=nx-34-((q-lastAcc)<=3?15:0); c.fillStyle=col; c.font='26px sans-serif'; c.fillText(ACC[pc],ax,yy+9); lastAcc=q; }
-        });
-        const one=gn.length===1;
-        c.fillStyle=light?'#14281e':'#fff';
-        if(one){ c.font='700 56px Inter,sans-serif'; c.fillText(SOL[gn[0].pw%12],20,330); }
-        else { c.font='700 '+(gn.length<=3?36:gn.length<=4?30:25)+'px Inter,sans-serif'; c.fillText(gn.slice().reverse().map(n=>SOL[n.pw%12]).join(' '),20,326,215); }
-        c.font='600 15px Inter,sans-serif'; c.fillStyle=ink;
-        if(one){
-            const fg=gn[0];
-            c.fillText('corda '+(6-fg.s)+' · '+GSTR_NOTE[fg.s],20,356);
-            c.fillText(fg.fret?'casa '+fg.fret+' · dedo '+fg.f:'corda solta',20,376);
-        } else {
-            c.font='600 14px Inter,sans-serif';
-            gn.slice().sort((x,y)=>y.s-x.s).forEach((n,i)=>{
-                c.fillText(SOL[n.pw%12]+' · '+(6-n.s)+'ª corda · '+(n.fret?'casa '+n.fret+' · dedo '+n.f:'solta'),20,356+i*21,260);
-            });
-        }
-    } else c.fillText('♪',20,330);
     c.restore();
     // partículas musicais saindo do dedo
-    if(pos.length&&Math.random()<0.7){ const q=pos[Math.floor(Math.random()*pos.length)]; claFX.push({x:q[0],y:q[1],vx:(Math.random()-.5)*1.4,vy:-(1+Math.random()*1.6),l:1,col:q[2],ch:Math.random()<0.5?'♪':'♫'}); }
+    if(pos.length&&Math.random()<(vgShowHand?0.12:0.7)){ const q=pos[Math.floor(Math.random()*pos.length)]; claFX.push({x:q[0],y:q[1],vx:(Math.random()-.5)*1.4,vy:-(1+Math.random()*1.6),l:1,col:q[2],ch:Math.random()<0.5?'♪':'♫'}); }
     for(let i=claFX.length-1;i>=0;i--){ const f=claFX[i]; f.x+=f.vx; f.y+=f.vy; f.l-=0.014;
         if(f.l<=0){ claFX.splice(i,1); continue; }
         c.globalAlpha=f.l; c.fillStyle=f.col; c.shadowColor=f.col; c.shadowBlur=12; c.font='bold 20px sans-serif'; c.textAlign='left'; c.fillText(f.ch,f.x,f.y); }
-    c.globalAlpha=1; c.shadowBlur=0; c.textAlign='start';
+    c.globalAlpha=1; c.shadowBlur=0; c.textAlign='start'; c.textBaseline='alphabetic';
 }
 
 function noteX(midi,cw){ return (midi-state.lowestNote)*cw/(state.highestNote-state.lowestNote+1); }
 function noteW(midi,cw){ return cw/(state.highestNote-state.lowestNote+1); }
 
-// seletor do tipo de violão (canto superior direito da área do instrumento): troca o som e o visual
+// controles no canto inferior direito da área do violão: mão, zoom no braço e tipo de violão
 window.addEventListener('DOMContentLoaded',()=>{
     const box=pianoCanvas.parentElement; if(getComputedStyle(box).position==='static') box.style.position='relative';
-    const sel=document.createElement('select'); sel.id='vgType'; sel.setAttribute('aria-label','Tipo de violão');
-    sel.style.cssText='position:absolute;top:8px;right:8px;z-index:5;background:rgba(6,14,10,.7);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:6px 8px;font:600 13px Inter,sans-serif;max-width:60%';
+    const bar=document.createElement('div'); bar.id='vgTools';
+    bar.style.cssText='position:absolute;bottom:6px;right:8px;z-index:5;display:flex;gap:6px;align-items:center;max-width:96%';
+    const sty='background:rgba(6,14,10,.72);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:6px 9px;font:600 12px Inter,sans-serif;cursor:pointer';
+    const mk=(id,txt,title)=>{ const b=document.createElement('button'); b.id=id; b.type='button'; b.textContent=txt; b.title=title; b.style.cssText=sty; return b; };
+    const bh=mk('vgHandBtn','🖐 Mão','Mostrar ou esconder a mão'), bz=mk('vgZoomBtn','🔍 Braço','Ampliar o braço (a câmera acompanha a mão)');
+    const paint=()=>{ bh.style.opacity=vgShowHand?1:.5; bz.style.opacity=vgZoomNeck?1:.5; bz.style.borderColor=vgZoomNeck?'#ffd54f':'rgba(255,255,255,.3)'; };
+    bh.onclick=()=>{ vgShowHand=!vgShowHand; try{ localStorage.setItem('vgHand',vgShowHand?'1':'0'); }catch(e){} paint(); drawPiano(); };
+    bz.onclick=()=>{ vgZoomNeck=!vgZoomNeck; vgHand.cam=null; try{ localStorage.setItem('vgZoom',vgZoomNeck?'1':'0'); }catch(e){} paint(); drawPiano(); };
+    const sel=document.createElement('select'); sel.id='vgType'; sel.setAttribute('aria-label','Tipo de violão'); sel.style.cssText=sty+';max-width:48%';
     Object.entries(VG_TYPES).forEach(([k,v])=>{ const o=document.createElement('option'); o.value=k; o.textContent=v.n; sel.appendChild(o); });
     sel.value=VG_TYPE;
     sel.addEventListener('change',()=>{ VG_TYPE=sel.value; try{ localStorage.setItem('vgType',VG_TYPE); }catch(e){} vgSwitchSampler(); drawPiano(); });
-    box.appendChild(sel);
+    bar.append(bh,bz,sel); box.appendChild(bar); paint();
 });
 
 
@@ -1744,6 +2085,7 @@ const VOICE_COLORS = ['#ff714d','#ff6b6b','#6bcb77','#ffd93d','#ff6bd6','#c49d5c
 let voices = [{id:0,name:'Soprano',color:VOICE_COLORS[0]},{id:1,name:'Alto',color:VOICE_COLORS[1]},{id:2,name:'Tenor',color:VOICE_COLORS[2]},{id:3,name:'Baixo',color:VOICE_COLORS[3]}];
 let activeVoice = 0;
 let scoreNotes = [];
+let scoreChords = []; // acordes do editor: {beat, root(0=Dó), q}
 let selMidi = 71; // B4
 let curBeat = 1;
 let selDur = 1;
@@ -2678,12 +3020,29 @@ function scoreToPlayerNotes(){
             duration:totalDur*mods.durMul*spb,velocity:Math.min(1,(n.velocity/127)*mods.velMul),track:n.voice,color:n.color,
             fix:(n.ts!=null&&n.tf!=null)?{s:n.ts,fret:n.tf}:undefined});
     });
-    return result;
+    return vgSustainBass(result);
+}
+// Baixo contínuo: as 3 cordas graves (Mi, Lá, Ré) continuam soando até o próximo ataque de baixo, mesmo que o
+// próximo baixo seja em outra corda (ou a mesma nota repetida). As 3 cordas agudas (melodia) não mudam.
+// Notas de baixo no mesmo instante (ex.: duas cordas graves juntas) soam juntas até o próximo baixo.
+function vgSustainBass(list){
+    if(!list.length) return list;
+    const TOL=0.02;
+    let asg; try{ asg=gAssignTimeline(list.map(n=>({key:n,u:n.startTime,e:n.endTime,midi:n.midi,fix:n.fix})),TOL); }catch(e){ return list; }
+    const bass=list.filter(n=>{ const a=asg.get(n); return a&&a.s<=2; }).sort((a,b)=>a.startTime-b.startTime);
+    const groups=[];
+    bass.forEach(n=>{ const g=groups[groups.length-1]; if(g&&n.startTime-g.t<=TOL) g.n.push(n); else groups.push({t:n.startTime,n:[n]}); });
+    const END=Math.max(...list.map(n=>n.endTime));
+    groups.forEach((g,i)=>{
+        const last=i+1>=groups.length, e=last?END:groups[i+1].t;
+        g.n.forEach(n=>{ if(last&&e<=n.endTime) return; n.endTime=e; n.duration=Math.max(0.05,e-n.startTime); n.sus=true; });
+    });
+    return list;
 }
 
 async function playScore(){
     if(!scoreNotes.length){ toast('Adicione notas primeiro'); return; }
-    const notes=scoreToPlayerNotes();
+    const notes=scoreToPlayerNotes(); vgSetChordTL();
     await applyNotes(notes,Math.max(...notes.map(n=>n.endTime))+0.5);
     fileNameEl.textContent='Partitura';
     switchView('player');
@@ -3323,7 +3682,8 @@ function snapshot(){
         voices:voices.map(v=>({id:v.id,name:v.name,color:v.color})), activeVoice, curBeat,
         notes:scoreNotes.map(n=>({midi:n.midi,beat:n.beat,duration:n.duration,velocity:n.velocity,voice:n.voice,
             accidental:n.accidental||0,dotted:!!n.dotted,dotted2:!!n.dotted2,tied:!!n.tied,
-            articulations:[...(n.articulations||[])],ts:n.ts,tf:n.tf}))};
+            articulations:[...(n.articulations||[])],ts:n.ts,tf:n.tf})),
+        chords:scoreChords.map(c=>({beat:c.beat,root:c.root,q:c.q}))};
 }
 function setSel(id,v){ const el=$(id); if(el&&[...el.options].some(o=>o.value===String(v))) el.value=String(v); }
 function apply(d){
@@ -3343,6 +3703,8 @@ function apply(d){
             ts:(Number.isInteger(n.ts)&&n.ts>=0&&n.ts<=5&&Number.isInteger(n.tf)&&n.tf>=0&&n.tf<=24)?n.ts:undefined,
             tf:(Number.isInteger(n.ts)&&n.ts>=0&&n.ts<=5&&Number.isInteger(n.tf)&&n.tf>=0&&n.tf<=24)?n.tf:undefined});
     });
+    scoreChords.length=0;
+    (Array.isArray(d.chords)?d.chords:[]).forEach(c=>{ if(c&&Number.isInteger(c.root)&&c.root>=0&&c.root<12&&CH_Q[c.q]&&isFinite(c.beat)&&c.beat>=1) scoreChords.push({beat:+c.beat,root:c.root,q:c.q}); });
     activeVoice=idMap.has(d.activeVoice)?idMap.get(d.activeVoice):0;
     selectedNoteIdx=-1; chordVoiceNotes={};
     if(chordMode) voices.forEach(v=>{ chordVoiceNotes[v.id]=selMidi; });
@@ -3705,7 +4067,7 @@ $('impGo').onclick=()=>{
             sn.push({midi:Math.max(21,Math.min(108,n.midi)),beat,duration:dur,velocity:Math.max(1,Math.min(127,Math.round(n.velocity*127))),voice:vOf(n.track),accidental:0,dotted:false,dotted2:false,tied:false,articulations:[]});
         });
         const d=snapshot();
-        if(replace){ d.voices=Array.from({length:Math.max(need,1)},(_,i)=>({id:i,name:i<4?['Soprano','Alto','Tenor','Baixo'][i]:'Voz '+(i+1)})); d.notes=sn; if(useTempo) d.bpm=bpm; d.curBeat=undefined; }
+        if(replace){ d.voices=Array.from({length:Math.max(need,1)},(_,i)=>({id:i,name:i<4?['Soprano','Alto','Tenor','Baixo'][i]:'Voz '+(i+1)})); d.notes=sn; d.chords=[]; if(useTempo) d.bpm=bpm; d.curBeat=undefined; }
         else { for(let i=d.voices.length;i<need;i++) d.voices.push({id:i,name:'Voz '+(i+1)}); d.notes=d.notes.concat(sn); d.curBeat=undefined; if(useTempo) d.bpm=bpm; }
         apply(d);
         if(replace){ projName=name||'Sem título'; current=null; updateName(); }
@@ -3730,17 +4092,19 @@ const OPEN=[64,59,55,50,45,40];            // vi 0..5 = e B G D A E (como no Vio
 const NM=['e','B','G','D','A','E'];
 const NN=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const midiName=m=>NN[m%12]+(Math.floor(m/12)-1);
-let cols=[], cursor=0, zoom=100, hist=[], hi=-1, MC=maxCols();
+let cols=[], chs=[], cursor=0, zoom=100, hist=[], hi=-1, MC=maxCols();
 function maxCols(){ const w=window.innerWidth; return w<400?12:w<600?16:w<900?20:22; }
 const emptyCol=()=>Array(6).fill(null);
-function ensure(){ while(cols.length<MC||cols.length%MC) cols.push(emptyCol()); if(cursor>=cols.length) cursor=cols.length-1; if(cursor<0) cursor=0; }
+function ensure(){ while(cols.length<MC||cols.length%MC) cols.push(emptyCol()); while(chs.length<cols.length) chs.push(null); chs.length=cols.length; if(cursor>=cols.length) cursor=cols.length-1; if(cursor<0) cursor=0; }
 const pages=()=>Math.ceil(cols.length/MC);
 const curPage=()=>Math.floor(cursor/MC);
 const total=()=>cols.reduce((a,c)=>a+c.filter(f=>f!==null).length,0);
 function msg(t){ try{ toast(t,'success'); }catch(e){} }
 
-function save(){ hist=hist.slice(0,hi+1); hist.push({cols:JSON.parse(JSON.stringify(cols)),cursor,zoom}); hi=hist.length-1; if(hist.length>50){ hist.shift(); hi--; } }
+function save(){ hist=hist.slice(0,hi+1); hist.push({cols:JSON.parse(JSON.stringify(cols)),chs:JSON.parse(JSON.stringify(chs)),cursor,zoom}); hi=hist.length-1; if(hist.length>50){ hist.shift(); hi--; } }
 function toScore(){
+    scoreChords.length=0;
+    chs.forEach((ch,k)=>{ if(ch) scoreChords.push({beat:1+k*0.5,root:ch.root,q:ch.q}); });
     scoreNotes.length=0;
     cols.forEach((c,k)=>c.forEach((f,vi)=>{
         if(f===null) return;
@@ -3754,7 +4118,8 @@ function commit(){ save(); toScore(); render(); }
 function fromScore(){
     const map=new Map(); let maxC=0;
     scoreNotes.forEach(n=>{ const k=Math.max(0,Math.round((n.beat-1)/0.5)); if(!map.has(k)) map.set(k,[]); map.get(k).push(n); if(k>maxC) maxC=k; });
-    cols=Array.from({length:maxC+1},emptyCol);
+    const chMap=new Map(); scoreChords.forEach(ch=>{ const k=Math.max(0,Math.round((ch.beat-1)/0.5)); chMap.set(k,{root:ch.root,q:ch.q}); if(k>maxC) maxC=k; });
+    cols=Array.from({length:maxC+1},emptyCol); chs=[]; chMap.forEach((v,k)=>{ chs[k]=v; });
     map.forEach((list,k)=>{
         const rest=[], seen=new Set(), pinned=[];
         list.forEach(n=>{
@@ -3773,7 +4138,7 @@ function fromScore(){
 function render(){
     ensure();
     const box=$('tabDisplayContainer'); let h='';
-    const np=pages(), cp=curPage();
+    const np=pages(), cp=curPage(); const cov=[]; { let on=false; for(let g=0;g<cols.length;g++){ if(chs[g]) on=true; cov[g]=on; } }
     for(let pi=0;pi<np;pi++){
         h+='<div class="tab-page" style="margin-bottom:'+(pi<np-1?'16px':'0')+';">';
         h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
@@ -3782,6 +4147,9 @@ function render(){
         h+='</div><div class="tab-display"><div class="tab-display-inner">';
         h+='<div class="tab-string-row" style="height:16px;"><div class="tab-string-label"></div><div class="tab-string-line">';
         for(let p=0;p<MC;p++){ const g=pi*MC+p; h+='<div class="tab-cell" style="font-size:8px;color:var(--color-muted);justify-content:flex-start;padding-left:2px;">'+(p%4===0?g:'')+'</div>'; }
+        h+='</div></div>';
+        h+='<div class="tab-string-row"><div class="tab-string-label" style="font-size:8px;color:#d9a800">Ac.</div><div class="tab-string-line">';
+        for(let p=0;p<MC;p++){ const g=pi*MC+p, ch=chs[g]; h+='<div class="tab-cell ch-cell'+(ch?' ch-on':(cov[g]?' ch-cover':''))+(g===cursor?' cursor':'')+'" data-ch="'+g+'">'+(ch?'<span>'+chName(ch)+'</span>':'')+'</div>'; }
         h+='</div></div>';
         for(let vi=0;vi<6;vi++){
             h+='<div class="tab-string-row"><div class="tab-string-label">'+NM[vi]+'</div><div class="tab-string-line"><div class="tab-string-dash"></div>';
@@ -3796,7 +4164,7 @@ function render(){
     box.innerHTML=h;
     box.style.transform='scale('+zoom/100+')'; box.style.transformOrigin='top left';
     $('tmZoomLevel').textContent=zoom+'%';
-    $('tabInfo').textContent=total()+' notas | Posição: '+cursor+' | Página: '+(cp+1)+'/'+np;
+    $('tabInfo').textContent=total()+' notas | Posição: '+cursor+' | Página: '+(cp+1)+'/'+np+' · segure uma nota para pôr acorde';
 }
 function scrollToPage(){ setTimeout(()=>{ const el=document.querySelectorAll('#tmPage .tab-page')[curPage()]; if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); },50); }
 function nav(d){
@@ -3805,18 +4173,18 @@ function nav(d){
     save(); render(); scrollToPage();
 }
 function delCol(){
-    if(!cols[cursor]||cols[cursor].every(f=>f===null)){ msg('Nenhuma nota nesta posição'); return; }
+    if(!cols[cursor]||cols[cursor].every(f=>f===null)){ if(chs[cursor]){ chs[cursor]=null; commit(); msg('Acorde removido'); return; } msg('Nenhuma nota nesta posição'); return; }
     cols[cursor]=emptyCol(); commit(); msg('🗑️ Coluna apagada');
 }
 function addSection(){ for(let i=0;i<MC;i++) cols.push(emptyCol()); cursor=cols.length-MC; commit(); scrollToPage(); }
 function removePage(pi){
     if(pages()<=1){ msg('Mínimo 1 página!'); return; }
-    cols.splice(pi*MC,MC); if(cursor>=cols.length) cursor=cols.length-1; commit();
+    cols.splice(pi*MC,MC); chs.splice(pi*MC,MC); if(cursor>=cols.length) cursor=cols.length-1; commit();
 }
 function zoomBy(d){ zoom=Math.max(50,Math.min(200,zoom+d)); save(); render(); }
-function undo(){ if(hi>0){ hi--; const h=hist[hi]; cols=JSON.parse(JSON.stringify(h.cols)); cursor=h.cursor; zoom=h.zoom; toScore(); render(); } }
-function redo(){ if(hi<hist.length-1){ hi++; const h=hist[hi]; cols=JSON.parse(JSON.stringify(h.cols)); cursor=h.cursor; zoom=h.zoom; toScore(); render(); } }
-function clearAll(){ cols=[]; cursor=0; zoom=100; ensure(); commit(); }
+function undo(){ if(hi>0){ hi--; const h=hist[hi]; cols=JSON.parse(JSON.stringify(h.cols)); chs=JSON.parse(JSON.stringify(h.chs||[])); cursor=h.cursor; zoom=h.zoom; toScore(); render(); } }
+function redo(){ if(hi<hist.length-1){ hi++; const h=hist[hi]; cols=JSON.parse(JSON.stringify(h.cols)); chs=JSON.parse(JSON.stringify(h.chs||[])); cursor=h.cursor; zoom=h.zoom; toScore(); render(); } }
+function clearAll(){ cols=[]; chs=[]; cursor=0; zoom=100; ensure(); commit(); }
 function cellClick(g,vi){ cursor=g; if(cols[g][vi]!==null) cols[g][vi]=null; commit(); }
 function fbClick(vi,fret,el){
     document.querySelectorAll('#tmPage .fb-cell.highlight').forEach(c=>c.classList.remove('highlight'));
@@ -3839,7 +4207,7 @@ function buildFretboard(){
 function toPlayer(autoPlay){
     if(!scoreNotes.length){ msg('Adicione notas!'); return; }
     if(autoPlay){ playScore(); return; }
-    const notes=scoreToPlayerNotes();
+    const notes=scoreToPlayerNotes(); vgSetChordTL();
     applyNotes(notes,Math.max(...notes.map(n=>n.endTime))+0.5);
     fileNameEl.textContent='Partitura';
     switchView('player');
@@ -3847,12 +4215,42 @@ function toPlayer(autoPlay){
 }
 // eventos
 const pg=$('tmPage');
+let lpTimer=null, lpStart=null, lpFired=false, chMenuCol=-1, chMenuAt=0;
+function cmDiag(){ const q=$('cmQual').value, r=+$('cmRoot').value; try{ chDrawDiagram($('cmDiag'),chVoicing(r,q),chName({root:r,q})); }catch(e){} }
+function chMenuOpen(g){
+    ensure(); chMenuCol=g; let cur=chs[g]; if(!cur) for(let k=g-1;k>=0;k--) if(chs[k]){ cur=chs[k]; break; }
+    $('cmRoot').value=cur?cur.root:0; $('cmQual').value=cur?cur.q:'maj';
+    $('cmTitle').textContent='Acorde na posição '+g+(chs[g]?' ('+chName(chs[g])+')':'');
+    $('cmDel').style.display=chs[g]?'':'none';
+    chMenuAt=Date.now(); $('chMenu').hidden=false; cmDiag();
+}
+(function(){
+    CH_PT.forEach((n,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=n+' ('+CH_PC[i]+')'; $('cmRoot').appendChild(o); });
+    Object.keys(CH_Q).forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=CH_Q[k].n==='maior'?'Maior':CH_Q[k].n.charAt(0).toUpperCase()+CH_Q[k].n.slice(1)+(CH_Q[k].s?'  ('+CH_Q[k].s+')':''); $('cmQual').appendChild(o); });
+    $('cmRoot').onchange=$('cmQual').onchange=cmDiag;
+    $('cmOk').onclick=()=>{ const g=chMenuCol; ensure(); chs[g]={root:+$('cmRoot').value,q:$('cmQual').value}; cursor=g; $('chMenu').hidden=true; commit(); msg('Acorde '+chName(chs[g])+' na posição '+g); };
+    $('cmDel').onclick=()=>{ const g=chMenuCol; chs[g]=null; $('chMenu').hidden=true; commit(); msg('Acorde removido'); };
+    $('cmCancel').onclick=()=>{ $('chMenu').hidden=true; };
+    $('chMenu').addEventListener('click',e=>{ if(e.target===$('chMenu')&&Date.now()-chMenuAt>500) $('chMenu').hidden=true; });
+})();
+// segurar uma nota (ou clicar com o botão direito) abre a escolha do acorde
+pg.addEventListener('pointerdown',e=>{
+    lpFired=false; clearTimeout(lpTimer); lpStart=null;
+    const c=e.target.closest('.tab-cell[data-c]'); if(!c||(e.pointerType==='mouse'&&e.button!==0)) return;
+    lpStart={x:e.clientX,y:e.clientY}; const g=+c.dataset.c;
+    lpTimer=setTimeout(()=>{ lpFired=true; lpStart=null; try{ navigator.vibrate&&navigator.vibrate(25); }catch(_){} chMenuOpen(g); },450);
+});
+pg.addEventListener('pointermove',e=>{ if(lpStart&&Math.hypot(e.clientX-lpStart.x,e.clientY-lpStart.y)>10){ clearTimeout(lpTimer); lpStart=null; } });
+['pointerup','pointercancel'].forEach(ev=>pg.addEventListener(ev,()=>{ clearTimeout(lpTimer); lpStart=null; }));
 pg.addEventListener('click',e=>{
+    if(lpFired){ lpFired=false; return; }
+    if(e.target.closest('#chMenu')) return;
+    const ce=e.target.closest('.ch-cell[data-ch]'); if(ce){ cursor=+ce.dataset.ch; save(); render(); chMenuOpen(cursor); return; }
     const c=e.target.closest('.tab-cell[data-c]'); if(c){ cellClick(+c.dataset.c,+c.dataset.v); return; }
     const b=e.target.closest('[data-rm]'); if(b){ removePage(+b.dataset.rm); return; }
     const f=e.target.closest('.fb-cell[data-v]'); if(f){ fbClick(+f.dataset.v,+f.dataset.f,f); }
 });
-pg.addEventListener('contextmenu',e=>{ const c=e.target.closest('.tab-cell[data-c]'); if(c){ e.preventDefault(); const g=+c.dataset.c,v=+c.dataset.v; if(cols[g][v]!==null){ cols[g][v]=null; commit(); } } });
+pg.addEventListener('contextmenu',e=>{ const c=e.target.closest('.tab-cell[data-c]'); if(c){ e.preventDefault(); clearTimeout(lpTimer); if(!lpFired){ lpFired=true; chMenuOpen(+c.dataset.c); } } });
 $('tmUndo').onclick=$('tmUndo2').onclick=undo; $('tmRedo').onclick=$('tmRedo2').onclick=redo;
 $('tmClear').onclick=clearAll; $('tmAddSec').onclick=addSection;
 $('tmZoomIn').onclick=()=>zoomBy(10); $('tmZoomOut').onclick=()=>zoomBy(-10);
@@ -3874,7 +4272,7 @@ window.addEventListener('resize',()=>{ const n=maxCols(); if(n!==MC){ MC=n; ensu
 window.tmFromScore=fromScore;
 window.tmShow=()=>{ MC=maxCols(); render(); };
 buildFretboard();
-if(scoreNotes.length) fromScore(); else { ensure(); save(); render(); }
+if(scoreNotes.length||scoreChords.length) fromScore(); else { ensure(); save(); render(); }
 })();
 </script>
 </body>
