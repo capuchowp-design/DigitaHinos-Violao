@@ -27,3 +27,6 @@ O violão mostra todas as cordas que soam juntas (baixo + melodia, acordes, dedi
 ## v8
 - Sem polegar na animação (só palma e dedos).
 - Corda solta tocada dentro da forma do acorde (ex.: Fá maior com pestana e a Si solta): o dedo **não sai da forma**, ele "levanta de leve" naquela corda — a pestana fica interrompida ali, aparece um círculo tracejado e o dedo fica mais leve. Vale também para dedos simples do acorde.
+
+## v9
+- No braço, só os dedos que estão **fazendo soar uma corda** ficam em vermelho brilhante com o número. Os demais dedos da forma do acorde continuam visíveis, mas em cinza-transparente (neutro), sem brilho.

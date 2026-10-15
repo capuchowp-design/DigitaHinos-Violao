@@ -1977,7 +1977,9 @@ function drawPiano(){
         const g=F[k]; if(!g) return;
         const fk=vgHand.f[k], ya=gFretY(g.fret-1), yb=gFretY(g.fret), Y=(ya+yb)/2, r=Math.min(12.5,Math.max(8.5,Math.min(13,(yb-ya)*.62),rMin));
         const strs=[...g.strs].sort((a,b)=>a-b), sounding=strs.some(si=>gOn[si]&&gOn[si].fret===g.fret);
-        c.save(); c.globalAlpha=Math.max(.15,fk.p)*(sounding?(vgShowHand?.85:1):.6);
+        // vermelho brilhante só nos dedos que estão fazendo soar uma corda; o resto da forma do acorde fica neutro (transparente)
+        const fillC=sounding?hc:'rgba(255,255,255,.12)', edgeC=sounding?'#fff':'rgba(255,255,255,.38)', numC=sounding?'#fff':'rgba(255,255,255,.62)', glow=sounding?26:0;
+        c.save(); c.globalAlpha=Math.max(.15,fk.p)*(sounding?(vgShowHand?.85:1):1);
         const lift=(g.lift||[]).filter(si=>strs.includes(si)), ghost=si=>{ // dedo levantado: círculo tracejado onde ele apertaria
             const X=gStrX(si,Y); c.save(); c.globalAlpha=.9; c.strokeStyle='#fff'; c.lineWidth=2; c.setLineDash([3,3]); c.beginPath(); c.arc(X,Y,r*.95,0,Math.PI*2); c.stroke(); c.restore(); };
         if(strs.length>1){
@@ -1988,17 +1990,17 @@ function drawPiano(){
             if(xb2>from) segs.push([from,xb2]);
             const solid=(w,col,blur)=>{ c.save(); c.lineCap=lift.length?'butt':'round'; c.strokeStyle=col; c.lineWidth=w; if(blur){ c.shadowColor=hc; c.shadowBlur=blur; }
                 segs.forEach(sg=>{ c.beginPath(); c.moveTo(sg[0],Y); c.lineTo(sg[1],Y); c.stroke(); }); c.restore(); };
-            solid(r*2+4,'#fff',0); solid(r*2,hc,sounding?26:8);
+            solid(r*2+4,edgeC,0); solid(r*2,fillC,glow);
             lift.forEach(ghost);
-            TX(String(k),(xa+xb2)/2,Y,Math.max(8,r*1.25*s),'#fff');
-            pos.push([...sc((xa+xb2)/2,Y),hc]);
+            TX(String(k),(xa+xb2)/2,Y,Math.max(8,r*1.25*s),numC);
+            if(sounding) pos.push([...sc((xa+xb2)/2,Y),hc]);
         } else if(lift.length){
             ghost(strs[0]); TX(String(k),gStrX(strs[0],Y),Y,Math.max(8,r*1.1*s),'rgba(255,255,255,.85)');
         } else {
             const X=gStrX(strs[0],Y);
-            c.shadowColor=hc; c.shadowBlur=sounding?26:8; c.fillStyle=hc; c.beginPath(); c.arc(X,Y,r,0,Math.PI*2); c.fill(); c.shadowBlur=0;
-            c.lineWidth=3; c.strokeStyle='#fff'; c.stroke();
-            TX(String(k),X,Y,Math.max(8,r*1.25*s),'#fff');
+            c.shadowColor=hc; c.shadowBlur=glow; c.fillStyle=fillC; c.beginPath(); c.arc(X,Y,r,0,Math.PI*2); c.fill(); c.shadowBlur=0;
+            c.lineWidth=sounding?3:2; c.strokeStyle=edgeC; c.stroke();
+            TX(String(k),X,Y,Math.max(8,r*1.25*s),numC);
             if(sounding) pos.push([...sc(X,Y),hc]);
         }
         c.restore();
