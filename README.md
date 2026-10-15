@@ -23,3 +23,7 @@ O violão mostra todas as cordas que soam juntas (baixo + melodia, acordes, dedi
 - A mão agora escolhe os dedos de todas as notas **juntas**, mudando o mínimo possível da forma do acorde: se a corda de uma nota está ocupada por outro dedo do acorde, esse dedo sai e a nota vai para o dedo mais próximo (ex.: Dó maior + Lá casa 2 → o médio vai para a Lá; Si casa 3 → mindinho). Os dedos do acorde que não atrapalham continuam apoiados. O acorde vale até você escolher outro.
 - **Baixo contínuo**: as 3 cordas graves (Mi, Lá, Ré) continuam soando até o próximo ataque de baixo (mesmo em outra corda, ou a mesma nota repetida). As 3 cordas agudas (melodia) não mudam. Vale para o player e para o WAV exportado (o MIDI e a pauta continuam com as durações escritas).
 - A animação mostra só a mão (sem punho/antebraço).
+
+## v8
+- Sem polegar na animação (só palma e dedos).
+- Corda solta tocada dentro da forma do acorde (ex.: Fá maior com pestana e a Si solta): o dedo **não sai da forma**, ele "levanta de leve" naquela corda — a pestana fica interrompida ali, aparece um círculo tracejado e o dedo fica mais leve. Vale também para dedos simples do acorde.
