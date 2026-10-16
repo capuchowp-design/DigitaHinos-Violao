@@ -1644,7 +1644,7 @@ function vgHandModel(gn,voic){
     if(!res) return vgHandModelGreedy(gn,voic);
     gn.forEach(n=>{ n.f=n.fret>0?(res.byStr[n.s]||n.f):0; });
     const F=[null,null,null,null,null];
-    for(let k=1;k<=4;k++) if(res.F[k]) F[k]={fret:res.F[k].fret,strs:new Set(res.F[k].strs),bar:res.F[k].strs.length>1,lift:res.F[k].lift||[]};
+    for(let k=1;k<=4;k++) if(res.F[k]) F[k]={fret:res.F[k].fret,strs:new Set(res.F[k].strs),bar:!!res.F[k].barre&&res.F[k].strs.length>1,lift:res.F[k].lift||[]};
     return F;
 }
 // devolve {F:[,{fret,strs[]}...], byStr:{corda:dedo}} ou null se não há arranjo possível
@@ -1672,7 +1672,7 @@ function vgHandSolve(req,played,voic){
             // pestana (um dedo em várias cordas) custa um pouco, a não ser que já seja assim no acorde
             let extra=0; const used={};
             for(let a=0;a<m;a++){ const k=cur[a]; (used[k]=used[k]||[]).push(req[a]); }
-            for(const k in used) used[k].forEach((r,j)=>{ if(j>0&&!homes[k].some(h=>h.s===r.s&&h.f===r.fret)) extra+=2; });
+            for(const k in used) used[k].forEach((r,j)=>{ if(false) extra+=2; });
             if(cost+extra<bc){ bc=cost+extra; best=cur.slice(); }
             return;
         }
@@ -1684,6 +1684,10 @@ function vgHandSolve(req,played,voic){
         }
     })(0,0);
     if(m&&!best) return null;
+    // mesma casa em cordas diferentes: mesmo número de dedo em cada ponto (sem barra, a não ser a pestana do acorde)
+    const byFret={}; req.forEach((r,i)=>{ (byFret[r.fret]=byFret[r.fret]||[]).push(i); });
+    for(const f in byFret){ const ix=byFret[f]; if(ix.length<2) continue;
+        const ex=ix.find(i=>homes[best[i]].some(h=>h.s===req[i].s&&h.f===req[i].fret)); const k0=ex!==undefined?best[ex]:Math.min(...ix.map(i=>best[i])); ix.forEach(i=>{ best[i]=k0; }); }
     const F=[null,null,null,null,null], byStr={};
     req.forEach((r,i)=>{ const k=best[i]; byStr[r.s]=k; const g=F[k]||(F[k]={fret:r.fret,strs:[]}); g.strs.push(r.s); });
     // corda solta tocada: o dedo do acorde que estava nela NÃO sai da forma, só levanta de leve (lift) sobre aquela corda
@@ -1704,7 +1708,8 @@ function vgHandSolve(req,played,voic){
         });
         if(keep.length){ const f0=keep[0].f, hs=keep.filter(h=>h.f===f0); F[k]={fret:f0,strs:hs.map(h=>h.s)}; const lf=hs.filter(h=>isOpen(h.s)).map(h=>h.s); if(lf.length) F[k].lift=lf; }
     }
-    for(let k=1;k<=4;k++) if(F[k]){ F[k].strs.sort((a,b)=>a-b); if(F[k].lift) F[k].lift.sort((a,b)=>a-b); }
+    // só é pestana (barra) se o acorde exige (ex.: Fá maior); a mesma casa em cordas diferentes fora disso são pontos separados
+    for(let k=1;k<=4;k++) if(F[k]){ F[k].strs.sort((a,b)=>a-b); if(F[k].lift) F[k].lift.sort((a,b)=>a-b); F[k].barre=homes[k].length>1&&homes[k].some(h=>h.f===F[k].fret); }
     return {F,byStr};
 }
 function vgHandModelGreedy(gn,voic){
@@ -1982,7 +1987,7 @@ function drawPiano(){
         c.save(); c.globalAlpha=Math.max(.15,fk.p)*(sounding?(vgShowHand?.85:1):1);
         const lift=(g.lift||[]).filter(si=>strs.includes(si)), ghost=si=>{ // dedo levantado: círculo tracejado onde ele apertaria
             const X=gStrX(si,Y); c.save(); c.globalAlpha=.9; c.strokeStyle='#fff'; c.lineWidth=2; c.setLineDash([3,3]); c.beginPath(); c.arc(X,Y,r*.95,0,Math.PI*2); c.stroke(); c.restore(); };
-        if(strs.length>1){
+        if(g.bar&&strs.length>1){
             const xa=gStrX(strs[0],Y), xb2=gStrX(strs[strs.length-1],Y), gap=r*1.25;
             // pestana: o traço é interrompido nas cordas levantadas (corda solta tocada), mas o formato do acorde continua
             const cuts=lift.map(si=>gStrX(si,Y)).sort((u,v)=>u-v), segs=[]; let from=xa;
@@ -1994,14 +1999,18 @@ function drawPiano(){
             lift.forEach(ghost);
             TX(String(k),(xa+xb2)/2,Y,Math.max(8,r*1.25*s),numC);
             if(sounding) pos.push([...sc((xa+xb2)/2,Y),hc]);
-        } else if(lift.length){
-            ghost(strs[0]); TX(String(k),gStrX(strs[0],Y),Y,Math.max(8,r*1.1*s),'rgba(255,255,255,.85)');
         } else {
-            const X=gStrX(strs[0],Y);
-            c.shadowColor=hc; c.shadowBlur=glow; c.fillStyle=fillC; c.beginPath(); c.arc(X,Y,r,0,Math.PI*2); c.fill(); c.shadowBlur=0;
-            c.lineWidth=sounding?3:2; c.strokeStyle=edgeC; c.stroke();
-            TX(String(k),X,Y,Math.max(8,r*1.25*s),numC);
-            if(sounding) pos.push([...sc(X,Y),hc]);
+            // sem pestana: um ponto com o número do dedo em cada corda (mesmo número em cordas diferentes = pontos separados)
+            strs.forEach(si=>{
+                const X=gStrX(si,Y), snd=!!(gOn[si]&&gOn[si].fret===g.fret);
+                if(lift.includes(si)){ ghost(si); TX(String(k),X,Y,Math.max(8,r*1.1*s),'rgba(255,255,255,.85)'); return; }
+                c.save(); c.globalAlpha=Math.max(.15,fk.p)*(snd?(vgShowHand?.85:1):1);
+                c.shadowColor=hc; c.shadowBlur=snd?26:0; c.fillStyle=snd?hc:'rgba(255,255,255,.12)'; c.beginPath(); c.arc(X,Y,r,0,Math.PI*2); c.fill(); c.shadowBlur=0;
+                c.lineWidth=snd?3:2; c.strokeStyle=snd?'#fff':'rgba(255,255,255,.38)'; c.stroke();
+                TX(String(k),X,Y,Math.max(8,r*1.25*s),snd?'#fff':'rgba(255,255,255,.62)');
+                c.restore();
+                if(snd) pos.push([...sc(X,Y),hc]);
+            });
         }
         c.restore();
     });
