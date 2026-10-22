@@ -331,7 +331,8 @@
         @media(min-width:1200px){
             .app-header{padding:8px 22px;} .piano-container{height:clamp(190px,34vh,300px);} .controls-bar{padding:8px 22px;}
         }
-    .inst-only .canvas-container{flex:0 0 0!important;height:0!important;min-height:0!important;overflow:hidden}
+    .inst-only .canvas-container{flex:0 0 auto!important;height:auto!important;min-height:0!important;overflow:visible}
+.inst-only #mainCanvas{display:none}
 .inst-only .piano-container{flex:1 1 auto!important;height:auto!important;min-height:0;border-top:none}
 
         /* ===== PROJETOS / EXPORTAR / PARTITURA ===== */
@@ -759,6 +760,7 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
         <div class="speed-control" id="keyCtl" style="display:none" title="Tom em que o hino é tocado (o app escolhe o mais fácil no violão)"><span>Tom:</span><select id="keySel" aria-label="Tom"></select></div>
         <div class="speed-control" id="harmCtl" style="display:none" title="Simples: acordes básicos. Melhor encaixe: o acorde que combina melhor com o soprano e o baixo de cada tempo"><span>Harmonia:</span><select id="harmSel" aria-label="Harmonia"><option value="0">Simples</option><option value="1">Melhor encaixe</option></select></div>
         <div class="speed-control" id="styleCtl" style="display:none" title="Básico: melodia + baixo. Profissional: dedilhado (fingerstyle simplificado) com notas do acorde entre o baixo e a melodia"><span>Estilo:</span><select id="styleSel" aria-label="Estilo"><option value="basic">Básico</option><option value="pro">Profissional (dedilhado)</option></select></div>
+        <button class="score-action-btn secondary" id="pbPlayerScore" title="Ver e baixar a partitura e a tablatura deste hino (Pro)">🎼 Partitura</button>
         <div class="volume-control">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
             <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="70">
@@ -1016,6 +1018,7 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
     <div class="pb-head"><h2>Partitura</h2><button class="pb-x" data-close>✕</button></div>
     <div class="pb-opts">
       <label>Título <input type="text" id="scTitle" maxlength="60" placeholder="Título da música"></label>
+      <label>Versão <select id="scVoice" aria-label="Versão ou voz da partitura"></select></label>
       <label>Formato <select id="scMode"><option value="both">Tablatura + notação</option><option value="tab" selected>Só tablatura</option><option value="nota">Só notação</option></select></label>
       <button class="score-action-btn primary" id="scPdf" style="margin-left:auto">⬇ Baixar PDF</button>
     </div>
@@ -1318,7 +1321,8 @@ function parseMusicXML(text){
     notes.sort((a,b)=>a.startTime-b.startTime);
     if(!notes.length) throw new Error('Nenhuma nota encontrada');
     const first=f=>{ const m=MI.find(x=>x[f]!==undefined); return m?m[f]:null; };
-    return {notes,duration:Math.max(...notes.map(x=>x.endTime)),bpm:tm[0].bpm,key:first('fifths'),timeSig:first('time'),voiceNames,measures};
+    const _m0=measures[0], _nom=_m0?_m0.beats*4/_m0.bt:0, pickup=(_m0&&_nom&&_m0.q>1e-6&&_m0.q<_nom-0.01)?_nom-_m0.q:0;   // compasso de anacruse (incompleto)
+    return {notes,duration:Math.max(...notes.map(x=>x.endTime)),bpm:tm[0].bpm,key:first('fifths'),timeSig:first('time'),voiceNames,measures,tm,pickup};
 }
 function isMidiBuf(buf){ const u=new Uint8Array(buf,0,Math.min(4,buf.byteLength)); return u[0]===0x4D&&u[1]===0x54&&u[2]===0x68&&u[3]===0x64; }
 async function parseAnyScore(buf){ return isMidiBuf(buf)?parseMidiFile(buf):parseMusicXML(await readScoreXmlText(buf)); }
@@ -1905,6 +1909,7 @@ async function loadBuffer(buf,name){
         const parsed=await parseAnyScore(buf);
         if(!parsed.notes.length) throw new Error('Nenhuma nota encontrada');
         const src=vgMakeSrc(parsed); state.src=src;
+        state.srcBpm=parsed.bpm; state.srcTs=parsed.timeSig; state.srcTm=parsed.tm; state.srcPickup=parsed.pickup||0; state.srcKey=parsed.key;
         state.mode=src.an?'violao':'all'; state.keyPc='auto';
         vgBuildMode(); await vgRebuild(false);
         if(src.an) toast('Tom '+vgKeyName(src.tonic+state.t,src.minor)+(state.t?' (original '+vgKeyName(src.tonic,src.minor)+')':'')+' · '+src.an.prog.length+' acordes','success');
@@ -2019,14 +2024,14 @@ async function proRender(){
     const price=PRO_CFG.price>0?'R$ '+Number(PRO_CFG.price).toFixed(2).replace('.',','):'';
     if(PRO.ok){
         const dev=PRO.dev?PRO.dev.slice(0,10)+'…':'';
-        box.innerHTML='<div class="pro-ok">✓ Pro ativo neste aparelho</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz.</p><p class="pro-p pro-small">Código: <b></b><br>Aparelho: '+dev+'<br>O acesso continua mesmo se você desinstalar o app ou limpar os dados (basta digitar o mesmo código neste aparelho, ou ele é restaurado sozinho no app instalado). O código não funciona em outro aparelho.</p>';
+        box.innerHTML='<div class="pro-ok">✓ Pro ativo neste aparelho</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz, e a partitura/tablatura pode ser baixada em PDF.</p><p class="pro-p pro-small">Código: <b></b><br>Aparelho: '+dev+'<br>O acesso continua mesmo se você desinstalar o app ou limpar os dados (basta digitar o mesmo código neste aparelho, ou ele é restaurado sozinho no app instalado). O código não funciona em outro aparelho.</p>';
         box.querySelector('b').textContent=PRO.code; return;
     }
-    const msgTop=proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
+    const msgTop=proReason==='pdf'?'Baixar a partitura e a tablatura em PDF é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
     const configured=/^https?:/.test(PRO_CFG.scriptUrl)&&PRO_CFG.pixKey&&PRO_CFG.pixKey!=='SUA_CHAVE_PIX';
     let dev=''; try{ dev=await proDevice(); }catch(e){}
     box.innerHTML=(msgTop?'<div class="pro-top">'+msgTop+'</div>':'')+
-      '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz. Pagamento único via Pix'+(price?' · <b>'+price+'</b>':'')+'.</p>'+
+      '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz, e download da partitura e da tablatura em PDF (todas as vozes ou só a que você escolher). Pagamento único via Pix'+(price?' · <b>'+price+'</b>':'')+'.</p>'+
       (configured?'':'<p class="pro-p pro-warn">Atenção: o dono do app ainda não preencheu o arquivo pro-config.js (chave Pix e endereço do script).</p>')+
       '<div class="pro-step"><span>1</span><div><b>Pague via Pix</b><div class="pro-row"><button class="pro-btn" id="proCopyPix">Copiar Pix copia e cola</button><button class="pro-btn sec" id="proCopyKey">Copiar chave</button></div><div class="pro-small" id="proKeyTxt"></div></div></div>'+
       '<div class="pro-step"><span>2</span><div><b>Envie o comprovante</b><div class="pro-row"><a class="pro-btn" id="proWa" target="_blank" rel="noopener">Enviar no WhatsApp</a></div><div class="pro-small">Você recebe um código de uso único.</div></div></div>'+
@@ -2221,6 +2226,7 @@ function drawScene(){
     if(isLight()){ bg.addColorStop(0,'#f6efe5'); bg.addColorStop(1,'#ede2d2'); }
     else { bg.addColorStop(0,'#130d09'); bg.addColorStop(1,'#22150d'); }
     mainCtx.fillStyle=bg; mainCtx.fillRect(0,0,w,h);
+    try{ liveScoreUpdate(); }catch(e){ console.error(e); }
     if(!state.midiLoaded) return;
     const pps=state.pps, hl=h-2;
     const active=new Map();
@@ -2698,13 +2704,11 @@ function vgDrawText(c,x,y,maxW,k,gn,chord,light,ink){
 }
 function vgDrawInfo(c,L,gn,chord,top,ac,light,ink){
     if(L.mode==='stack'){
-        const k=Math.min(1.5,L.ih/155), X=L.ix+10, Y=L.iy+(L.ih-150*k)/2;
-        vgDrawStaff(c,gn,X,Y,k,ac,top,ink);
-        const tx=X+168*k; vgDrawText(c,tx,L.iy+10,Math.max(60,L.iw-tx-10),Math.min(1.2,k),gn,chord,light,ink);
+        const k=Math.min(1.5,L.ih/155);   // a pauta agora é a partitura ao vivo, no alto da tela
+        vgDrawText(c,L.ix+12,L.iy+10,Math.max(60,L.iw-24),Math.min(1.2,k),gn,chord,light,ink);
     } else if(L.mode==='wide'){
         const k=Math.min(1,(L.iw-16)/158);
-        vgDrawStaff(c,gn,8,10,k,ac,top,ink);
-        vgDrawText(c,10,10+150*k+2,L.iw-18,Math.min(1,k+.05),gn,chord,light,ink);
+        vgDrawText(c,10,10,L.iw-18,Math.min(1,k+.05),gn,chord,light,ink);
     } else {
         c.textAlign='left'; c.textBaseline='alphabetic'; let y=20;
         if(chord){ c.font='700 13px Inter,sans-serif'; c.fillStyle=light?'#8a5a00':'#ffd54f'; c.fillText('Acorde '+chName(chord),10,y,L.gw-120); y+=20; }
@@ -4046,6 +4050,134 @@ window.addEventListener('appinstalled', () => {
 });
 </script>
 <script>
+const PCL=[0,2,4,5,7,9,11], KS_SHARP_L=[3,0,4,1,5,2,6], KS_FLAT_L=[6,2,5,1,4,0,3];
+let KEY={n:0,flat:false};
+function keySigArr(){ const a=[0,0,0,0,0,0,0]; for(let i=0;i<KEY.n;i++) a[(KEY.flat?KS_FLAT_L:KS_SHARP_L)[i]]=KEY.flat?-1:1; return a; }
+let KSIG=keySigArr();
+function spellMidi(m,acc){
+    const pc=((m%12)+12)%12;
+    if(acc){ const b=m-acc, i=PCL.indexOf(((b%12)+12)%12); if(i>=0) return {l:i,a:acc,o:Math.floor(b/12)-1}; }
+    for(let l=0;l<7;l++) if(KSIG[l]&&((PCL[l]+KSIG[l]+12)%12)===pc) return {l,a:KSIG[l],o:Math.floor((m-KSIG[l])/12)-1};
+    const i=PCL.indexOf(pc); if(i>=0) return {l:i,a:0,o:Math.floor(m/12)-1};
+    if(KEY.flat) return {l:PCL.indexOf((pc+1)%12),a:-1,o:Math.floor((m+1)/12)-1};
+    return {l:PCL.indexOf((pc+11)%12),a:1,o:Math.floor((m-1)/12)-1};
+}
+/* ============================================================================
+   PARTITURA DO HINO ABERTO NO PLAYER (PDF) + PARTITURA AO VIVO NA TELA INICIAL
+   Notação (escrita uma oitava acima do som) + tablatura, com a mesma digitação mostrada no braço.
+   ========================================================================== */
+function srcQ(t){
+    const tm=state.srcTm;
+    if(!tm||!tm.length) return t/(60/Math.max(20,Math.min(300,state.srcBpm||120)));
+    let k=tm.length-1; while(k>0&&tm[k].s>t+1e-9) k--;
+    return tm[k].q+(t-tm[k].s)*tm[k].bpm/60;
+}
+const playerTs=()=>(state.srcTs&&PB_MEASURE[state.srcTs])?state.srcTs:'4/4';
+// notas do violão (o que toca: som real, já transposto) -> formato do motor; a digitação (fix) vira corda/casa da tablatura
+function playerScoreNotes(src){
+    src=src||state.notes;
+    const q=0.25, pk=state.srcPickup||0;
+    return src.filter(n=>!n.dup).map(n=>{
+        const a=srcQ(n.startTime)+pk, b=srcQ(n.endTime)+pk;
+        const beat=1+Math.max(0,Math.round(a/q))*q, end=1+Math.max(0,Math.round(b/q))*q;
+        const o={midi:Math.max(0,Math.min(127,n.midi)), beat, duration:Math.max(q,end-beat),
+            velocity:Math.max(1,Math.min(127,Math.round((n.velocity||.7)*127))), voice:n.track|0,
+            accidental:0,dotted:false,dotted2:false,tied:false,articulations:[],t0:n.startTime,t1:n.endTime};
+        if(n.fix&&n.fix.s!=null){ o.ts=n.fix.s; o.tf=n.fix.fret; }
+        return o;
+    });
+}
+// armadura do hino já transposta (state.t semitons); prefere ≤6 acidentes
+function srcKeyObj(){
+    const f=state.srcKey; if(f==null||isNaN(f)) return {n:0,flat:false};
+    const t=state.t||0, sh0=((7*t)%12+12)%12, sh=sh0>6?sh0-12:sh0;
+    let k=Number(f)+sh; while(k>6) k-=12; while(k<-6) k+=12;
+    return {n:Math.abs(k),flat:k<0};
+}
+function withPlayerSource(fn,src){
+    const bakN=scoreNotes, bpmEl=document.getElementById('scoreBpm'), bakB=bpmEl.value, bakK=KEY;
+    try{
+        KEY=srcKeyObj(); KSIG=keySigArr();
+        scoreNotes=playerScoreNotes(src);
+        bpmEl.value=Math.max(20,Math.min(300,Math.round(state.srcBpm||120)));
+        return fn();
+    } finally { scoreNotes=bakN; bpmEl.value=bakB; KEY=bakK; KSIG=keySigArr(); }
+}
+// notas de uma "versão" do hino: a que está tocando ou outra (violão/todas/voz) montada do arquivo
+function gtVersionNotes(v){
+    const src=state.src;
+    if(!src||v==='cur'||String(v)===String(state.mode)) return state.notes;
+    const mode=(v==='violao'||v==='all')?v:parseInt(v);
+    return vgNotesFor(src,mode,state.t||0);
+}
+const LIVE={sig:'',notesRef:null,svgs:[],lay:[],heads:[],map:[],act:[],host:null,paper:null,cur:null,shown:null,sys:-1,ok:false};
+const LIVE_COL='#e8590c';
+function liveHost(){
+    if(LIVE.host) return LIVE.host;
+    const h=document.createElement('div'); h.id='liveScore';
+    h.style.cssText='position:relative;display:none;align-items:center;justify-content:center;padding:8px 8px 6px;z-index:2;pointer-events:none';
+    const paper=document.createElement('div');
+    paper.style.cssText='background:#fff;border-radius:12px;box-shadow:0 6px 28px rgba(0,0,0,.45);overflow:hidden;width:100%;max-width:980px;max-height:36vh;display:flex;align-items:center;justify-content:center;padding:4px 6px';
+    h.append(paper); canvasContainer.append(h); LIVE.host=h; LIVE.paper=paper;
+    try{   // quando a altura da partitura muda, o violão é redimensionado (evita animação cortada/esticada)
+        let raf=0, lastH=-1;
+        const ro=new ResizeObserver(()=>{ const hh=Math.round(canvasContainer.getBoundingClientRect().height); if(hh===lastH) return; lastH=hh;
+            cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{ resizeCanvases(); if(state.midiLoaded) drawScene(); }); });
+        ro.observe(canvasContainer); ro.observe(pianoCanvas.parentElement);
+    }catch(e){}
+    return h;
+}
+function liveBuild(){
+    LIVE.svgs=[]; LIVE.lay=[]; LIVE.heads=[]; LIVE.map=[]; LIVE.act=[]; LIVE.shown=null; LIVE.sys=-1; LIVE.ok=false;
+    try{
+        const src=playerScoreNotes(state.notes);
+        const sd=withPlayerSource(()=>pbBuildScore({title:'',voice:'all',ts:playerTs(),mode:'both'}),state.notes);
+        LIVE.svgs=sd.svgs; LIVE.lay=sd.lay; LIVE.heads=sd.heads; LIVE.W=sd.W;
+        const pr=[]; src.forEach(n=>{ pr.push([n.t0,(n.beat-1)*8],[n.t1,(n.beat-1+n.duration)*8]); });
+        pr.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+        let mu=-1; const m=[]; pr.forEach(([t,u])=>{ u=Math.max(u,mu); mu=u; if(m.length&&m[m.length-1][0]===t) m[m.length-1][1]=u; else m.push([t,u]); });
+        LIVE.map=m; LIVE.ok=sd.svgs.length>0&&sd.lay.length>0;
+        LIVE.svgs.forEach(svg=>{
+            svg.removeAttribute('width'); svg.removeAttribute('height');
+            svg.style.cssText='display:block;width:100%;height:auto;max-height:calc(36vh - 8px)';
+            const ln=document.createElementNS(PB_NS,'line'); ln.setAttribute('stroke',LIVE_COL); ln.setAttribute('stroke-width','2.4'); ln.setAttribute('opacity','.75'); ln.setAttribute('stroke-linecap','round'); ln.style.display='none'; svg.append(ln); svg._cur=ln;
+        });
+    }catch(e){ console.error(e); LIVE.ok=false; }
+}
+function liveU(t){
+    const m=LIVE.map; if(!m.length) return 0;
+    if(t<=m[0][0]) return m[0][1]; if(t>=m[m.length-1][0]) return m[m.length-1][1];
+    let a=0,b=m.length-1; while(b-a>1){ const c=(a+b)>>1; if(m[c][0]<=t) a=c; else b=c; }
+    const f=(t-m[a][0])/Math.max(1e-6,m[b][0]-m[a][0]); return m[a][1]+(m[b][1]-m[a][1])*f;
+}
+function liveScoreUpdate(){
+    const host=liveHost();
+    if(!state.midiLoaded||!state.notes.length){ host.style.display='none'; return; }
+    const sig=[state.mode,state.t,state.style,state.harm?1:0,state.srcBpm,state.srcTs,state.srcPickup,state.srcKey].join('|');
+    if(LIVE.notesRef!==state.notes||LIVE.sig!==sig){ LIVE.notesRef=state.notes; LIVE.sig=sig; liveBuild(); }
+    if(!LIVE.ok){ host.style.display='none'; return; }
+    host.style.display='flex';
+    const u=liveU(state.currentTime), lay=LIVE.lay;
+    let si=lay.findIndex(L=>u<L.u1-1e-6); if(si<0) si=lay.length-1;
+    const L=lay[si], svg=LIVE.svgs[L.page];
+    if(LIVE.shown!==svg){ LIVE.paper.textContent=''; LIVE.paper.append(svg); LIVE.shown=svg; LIVE.sys=-1; }
+    if(LIVE.sys!==si){ LIVE.sys=si; const top=L.y0-12, bot=L.y0+L.h-6; svg.setAttribute('viewBox','0 '+top+' '+LIVE.W+' '+(bot-top)); }   // só a linha que está tocando
+    const cols=L.cols; let x=L.xEnd;
+    if(cols.length){
+        if(u<=cols[0].u) x=cols[0].x;
+        else for(let i=0;i<cols.length;i++){ const a=cols[i], bU=i+1<cols.length?cols[i+1].u:L.u1, bX=i+1<cols.length?cols[i+1].x:L.xEnd;
+            if(u<bU){ x=a.x+(bX-a.x)*((u-a.u)/Math.max(1e-6,bU-a.u)); break; } }
+    }
+    const ln=svg._cur; ln.style.display=''; ln.setAttribute('x1',x); ln.setAttribute('x2',x); ln.setAttribute('y1',L.y0+30); ln.setAttribute('y2',L.y0+L.h-18);
+    const act=LIVE.heads.filter(h=>h.u<=u+1e-6&&u<h.e-1e-6);
+    const same=act.length===LIVE.act.length&&act.every((h,i)=>h===LIVE.act[i]);
+    if(!same){
+        LIVE.act.forEach(h=>{ if(h.k==='fill') h.el.setAttribute('fill','#111'); else h.el.setAttribute('stroke','#111'); });
+        act.forEach(h=>{ if(h.k==='fill') h.el.setAttribute('fill',LIVE_COL); else h.el.setAttribute('stroke',LIVE_COL); });
+        LIVE.act=act;
+    }
+}
+
 /* ============================================================================
    PARTITURA (clave de Sol) — desenhada em SVG, sem bibliotecas externas
    ========================================================================== */
@@ -4057,10 +4189,11 @@ function pbEl(parent,tag,attrs,txt){
     parent.appendChild(e); return e;
 }
 const PB_DURS=[32,24,16,12,8,6,4,3,2,1];               // em fusas (1/32); 1 tempo (semínima) = 8
-const PB_MEASURE={'4/4':32,'3/4':24,'2/4':16,'6/8':24};
+const PB_MEASURE={'4/4':32,'3/4':24,'2/4':16,'6/8':24,'6/4':48,'3/2':48,'2/2':32,'9/4':72,'9/8':36,'12/8':48};
+const pbCompound=ts=>ts==='6/8'||ts==='9/8'||ts==='12/8';
 function pbOkPos(p,d,ts){
-    if(ts==='6/8'){
-        if(d===24) return p===0;
+    if(pbCompound(ts)){
+        if(d===24) return p%24===0;
         if(d===16) return false;
         if(d===12) return p%12===0;
         if(d===8)  return p%4===0 && (p%12)+8<=12;
@@ -4071,9 +4204,10 @@ function pbOkPos(p,d,ts){
         return true;
     }
     switch(d){
-        case 32: case 24: return p===0;
+        case 32: return p===0;
+        case 24: return p%24===0;
         case 16: return p%16===0;
-        case 12: return p===0||p===16;
+        case 12: return p%16===0;
         case 8:  return p%8===0;
         case 6:  return p%8===0;
         case 4:  return p%4===0;
@@ -4092,15 +4226,7 @@ function pbSplit(p,len,ts){
     return out;
 }
 const PB_WL=[0,null,1,null,2,3,null,4,null,5,null,6];
-function pbSpell(n){
-    const m=n.midi+12, acc=n.accidental||0, pc=((m%12)+12)%12;
-    if(acc!==0){
-        const b=m-acc, bpc=((b%12)+12)%12;
-        if(PB_WL[bpc]!=null) return {l:PB_WL[bpc],a:acc,o:Math.floor(b/12)-1};
-    }
-    if(PB_WL[pc]!=null) return {l:PB_WL[pc],a:0,o:Math.floor(m/12)-1};
-    return {l:PB_WL[pc-1],a:1,o:Math.floor(m/12)-1};
-}
+function pbSpell(n){ return spellMidi(n.midi,n.accidental||0); }
 const pbFlags=len=>len>=8?0:len>=4?1:len>=2?2:3;
 const pbDotted=len=>len===24||len===12||len===6||len===3;
 
@@ -4147,19 +4273,20 @@ function pbTabAssign(midis){
 }
 function pbBuildScore(opts){
     opts=opts||{};
-    const ts=document.getElementById('scoreTimeSig').value||'4/4', M=PB_MEASURE[ts]||32, beatU=ts==='6/8'?12:8;
+    const MODE=opts.mode||'both';
+    const ts=opts.ts||document.getElementById('scoreTimeSig').value||'4/4', M=PB_MEASURE[ts]||32, beatU=pbCompound(ts)?12:8;
     const bpm=parseInt(document.getElementById('scoreBpm').value)||120;
     const title=(opts.title||'').trim();
-    const MODE=opts.mode||'both';
-    const notes=scoreNotes.map((n,i)=>{
-        const sp=pbSpell(n), u=Math.max(0,Math.round((n.beat-1)*8));
+    const vsel=(opts.voice===undefined||opts.voice==='all')?null:Number(opts.voice);
+    const notes=scoreNotes.map((n,i)=>({n,i})).filter(x=>vsel===null||x.n.voice===vsel).map(({n,i})=>{
+        const sp=pbSpell({midi:n.midi+12,accidental:n.accidental}), u=Math.max(0,Math.round((n.beat-1)*8));
         let e=Math.round((n.beat-1+n.duration)*8); if(e<=u) e=u+1;
         return {n,i,u,e,l:sp.l,a:sp.a,o:sp.o,d:sp.o*7+sp.l,midi:n.midi,tied:!!n.tied,arts:n.articulations||[]};
     });
     if(!notes.length) throw new Error('vazio');
     const end=Math.max(...notes.map(x=>x.e)), nM=Math.max(1,Math.ceil(end/M)), total=nM*M;
     const SP=8, W=840, H=1188, MX=52;
-    const staves=[{clef:'treble',base:30,mid:34,ev:pbStaffEvents(notes,M,ts,total)}];
+    const staves=[{clef:'treble',base:30,mid:34,ev:pbStaffEvents(notes,M,ts,total)}];   // trompete: só clave de Sol (nota escrita)
 
     staves.forEach(st=>{
         let state={}, lastM=-1;
@@ -4167,7 +4294,7 @@ function pbBuildScore(opts){
             if(ev.m!==lastM){ state={}; lastM=ev.m; }
             if(ev.rest) return;
             ev.notes.forEach(h=>{
-                const key=h.l+'/'+h.o, cur=state[key]||0;
+                const key=h.l+'/'+h.o, cur=(key in state)?state[key]:KSIG[h.l];
                 if(h.tieIn){ h.show=null; state[key]=h.a; return; }
                 if(cur!==h.a){ h.show=h.a; state[key]=h.a; }
             });
@@ -4216,14 +4343,14 @@ function pbBuildScore(opts){
         });
         measures.push({m,cols});
     }
-    const clefW=34, tsW=22, AWfull=W-2*MX;
+    const clefW=34, tsW=22, AWfull=W-2*MX, ksW=KEY.n?KEY.n*9+6:0;
     const systems=[]; let cur=null;
     const mWidth=ms=>8+ms.cols.reduce((s,c)=>s+c.left+c.base,0)+6;
     measures.forEach(ms=>{
         const w=mWidth(ms);
         if(!cur){ cur={ms:[ms],w,first:true}; systems.push(cur); }
         else {
-            const av=AWfull-clefW-(cur.first?tsW:0);
+            const av=AWfull-clefW-ksW-(cur.first?tsW:0);
             if(cur.w+w<=av){ cur.ms.push(ms); cur.w+=w; }
             else { cur={ms:[ms],w,first:false}; systems.push(cur); }
         }
@@ -4231,7 +4358,6 @@ function pbBuildScore(opts){
     const TSP=9, TABH=5*TSP;
     const gA=gAssignTimeline(notes.map(n=>({key:n,u:n.u,e:n.e,midi:n.midi,fix:(n.n.ts!=null&&n.n.tf!=null)?{s:n.n.ts,fret:n.n.tf}:undefined})),0);
     const atkList=staves[0].ev.filter(ev=>!ev.rest&&ev.notes.some(h=>!h.tieIn));
-    const fretOf=pbTabAssign;
     systems.forEach(sys=>{
         const evs=staves[0].ev.filter(ev=>sys.ms.some(ms=>ms.m===ev.m));
         let minD=1e9; evs.forEach(ev=>{ if(!ev.rest) ev.notes.forEach(h=>{ minD=Math.min(minD,h.d); }); });
@@ -4248,7 +4374,7 @@ function pbBuildScore(opts){
         svgs.push(s); page=s;
         if(pageNo===1){
             pbEl(page,'text',{x:W/2,y:70,'text-anchor':'middle','font-family':'Georgia,Times New Roman,serif','font-size':28,'font-weight':'bold',fill:'#111'},title||'Sem título');
-            pbEl(page,'text',{x:MX,y:96,'font-family':'Georgia,serif','font-size':13,'font-style':'italic',fill:'#555'},MODE==='tab'?'Violão — tablatura':MODE==='nota'?'Violão (escrito uma oitava acima do som)':'Violão — tablatura e notação (escrita uma oitava acima do som)');
+            pbEl(page,'text',{x:MX,y:96,'font-family':'Georgia,serif','font-size':13,'font-style':'italic',fill:'#555'},(MODE==='tab'?'Violão — tablatura':MODE==='nota'?'Violão (escrito uma oitava acima do som)':'Violão — tablatura e notação (escrita uma oitava acima do som)'));
             pbEl(page,'ellipse',{cx:MX+5,cy:120,rx:4.6,ry:3.4,transform:'rotate(-20 '+(MX+5)+' 120)',fill:'#111'});
             pbEl(page,'line',{x1:MX+9.2,y1:119,x2:MX+9.2,y2:105,stroke:'#111','stroke-width':1.3});
             pbEl(page,'text',{x:MX+18,y:120,'font-family':'Arial,Helvetica,sans-serif','font-size':14,fill:'#111'},'= '+bpm);
@@ -4256,7 +4382,7 @@ function pbBuildScore(opts){
         } else y=60;
     };
     newPage();
-    const place=[];
+    const place=[], heads=[];
     systems.forEach(sys=>{
         if(y+sys.h>H-56) newPage();
         place.push({sys,page,y0:y,pageNo});
@@ -4267,14 +4393,14 @@ function pbBuildScore(opts){
     pbEl(svgs[0],'text',{x:W-MX,y:120,'text-anchor':'end','font-family':'Arial,Helvetica,sans-serif','font-size':11,'fill':'#888'},ts+'  ·  Violão Bounce');
 
     const INK='#111', HRX=SP*0.66, HRY=SP*0.46;
-    const pending=staves.map(()=>new Map());
+    const pending=staves.map(()=>new Map()), lay=[];
     const stepY=(st,top,d)=>top+4*SP-(d-st.base)*SP/2;
     place.forEach(({sys,page:pgReal,y0},si)=>{
         const pg=MODE==='tab'?document.createElementNS(PB_NS,'g'):pgReal;
-        const tops=staves.map((_,k)=>y0+44+k*(4*SP));
+        const tops=staves.map((_,k)=>y0+44+k*(8*SP));
         const left=MX, firstTs=sys.first;
-        const xStart=left+clefW+(firstTs?tsW:0);
-        const AW=AWfull-clefW-(firstTs?tsW:0);
+        const xStart=left+clefW+ksW+(firstTs?tsW:0);
+        const AW=AWfull-clefW-ksW-(firstTs?tsW:0);
         const pads=sys.ms.length*14;
         const fixed=sys.ms.reduce((s,ms)=>s+ms.cols.reduce((a,c)=>a+c.left,0),0);
         const flex=sys.ms.reduce((s,ms)=>s+ms.cols.reduce((a,c)=>a+c.base,0),0);
@@ -4289,15 +4415,22 @@ function pbBuildScore(opts){
             x+=6; barX.push(x);
         });
         const xEnd=x;
+        lay.push({page:svgs.indexOf(pg),y0,h:sys.h,xStart,xEnd,u0:sys.ms[0].m*M,u1:(sys.ms[sys.ms.length-1].m+1)*M,
+            cols:sys.ms.flatMap(ms=>ms.cols.map(c=>({u:c.pos,x:colX.get(ms.m+':'+c.pos)})))});
         staves.forEach((st,k)=>{
             for(let i=0;i<5;i++) pbEl(pg,'line',{x1:left,y1:tops[k]+i*SP,x2:xEnd,y2:tops[k]+i*SP,stroke:INK,'stroke-width':1});
         });
-        const bottomY=tops[0]+4*SP;
+        const bottomY=tops[staves.length-1]+4*SP;
         pbEl(pg,'line',{x1:left,y1:tops[0],x2:left,y2:bottomY,stroke:INK,'stroke-width':1.6});
+        if(staves.length>1) pbEl(pg,'path',{d:`M${left-3},${tops[0]} Q${left-9},${(tops[0]+bottomY)/2} ${left-3},${bottomY}`,fill:'none',stroke:INK,'stroke-width':2.4});
         staves.forEach((st,k)=>{
-            pbTrebleClef(pg,left+8,tops[k]+3*SP,SP);
+            if(st.clef==='alto') pbAltoClef(pg,left+7,tops[k]+2*SP,SP); else if(st.clef==='bass') pbBassClef(pg,left+7,tops[k]+SP,SP); else pbTrebleClef(pg,left+8,tops[k]+3*SP,SP);
+            if(KEY.n){
+                const PS=(KEY.flat?[4,7,3,6,2,5,1]:[8,5,9,6,3,7,4]).map(q=>q-(st.clef==='alto'?1:st.clef==='bass'?2:0));
+                for(let q=0;q<KEY.n;q++) pbAccidental(pg,left+clefW+6+q*9,stepY(st,tops[k],st.base+PS[q]),KEY.flat?-1:1,SP,INK);
+            }
             if(firstTs){
-                const [a,b]=ts.split('/'), tx=left+clefW+8;
+                const [a,b]=ts.split('/'), tx=left+clefW+ksW+8;
                 pbEl(pg,'text',{x:tx,y:tops[k]+2*SP-1,'text-anchor':'middle','font-family':'Georgia,serif','font-size':SP*2.7,'font-weight':'bold',fill:INK},a);
                 pbEl(pg,'text',{x:tx,y:tops[k]+4*SP-1,'text-anchor':'middle','font-family':'Georgia,serif','font-size':SP*2.7,'font-weight':'bold',fill:INK},b);
             }
@@ -4321,14 +4454,16 @@ function pbBuildScore(opts){
                 for(let d=st.base+10; d<=highs; d+=2) pbEl(pg,'line',{x1:cx-HRX*1.7,y1:yOf(d),x2:cx+HRX*1.7+(n.some(h=>h.disp>0)?HRX*2:0),y2:yOf(d),stroke:INK,'stroke-width':1.2});
                 n.forEach(h=>{
                     const hx=cx+h.disp*HRX*2, hy=yOf(h.d); h.hx=hx; h.hy=hy;
+                    let hel, hk='fill';
                     if(ev.len>=32){
-                        pbEl(pg,'ellipse',{cx:hx,cy:hy,rx:HRX*1.15,ry:HRY*1.05,fill:INK});
+                        hel=pbEl(pg,'ellipse',{cx:hx,cy:hy,rx:HRX*1.15,ry:HRY*1.05,fill:INK});
                         pbEl(pg,'ellipse',{cx:hx,cy:hy,rx:HRX*.55,ry:HRY*.95,fill:'#fff',transform:`rotate(-55 ${hx} ${hy})`});
                     } else if(ev.len<16){
-                        pbEl(pg,'ellipse',{cx:hx,cy:hy,rx:HRX,ry:HRY,fill:INK,transform:`rotate(-20 ${hx} ${hy})`});
+                        hel=pbEl(pg,'ellipse',{cx:hx,cy:hy,rx:HRX,ry:HRY,fill:INK,transform:`rotate(-20 ${hx} ${hy})`});
                     } else {
-                        pbEl(pg,'ellipse',{cx:hx,cy:hy,rx:HRX*.95,ry:HRY*.9,fill:'none',stroke:INK,'stroke-width':1.6,transform:`rotate(-22 ${hx} ${hy})`});
+                        hel=pbEl(pg,'ellipse',{cx:hx,cy:hy,rx:HRX*.95,ry:HRY*.9,fill:'none',stroke:INK,'stroke-width':1.6,transform:`rotate(-22 ${hx} ${hy})`}); hk='stroke';
                     }
+                    heads.push({el:hel,k:hk,u:ev.pos,e:ev.pos+ev.len,voice:h.x&&h.x.n?h.x.n.voice:0});
                     if(pbDotted(ev.len)){
                         const onLine=((h.d-st.base)%2+2)%2===0;
                         pbEl(pg,'circle',{cx:cx+HRX*2+(n.some(q=>q.disp>0)?HRX*2:0)+1.5,cy:hy-(onLine?SP/2:0),r:1.5,fill:INK});
@@ -4430,7 +4565,8 @@ function pbBuildScore(opts){
                 atk.forEach((h,i)=>{
                     const a=gA.get(h.x)||gCands(h.midi)[0], y=sY(a.s), t=String(a.fret), w=t.length*6.2+3;
                     pbEl(pgReal,'rect',{x:cx-w/2,y:y-5.2,width:w,height:10.4,fill:'#fff'});
-                    pbEl(pgReal,'text',{x:cx,y:y+3.9,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':11,'font-weight':'bold',fill:INKT},t);
+                    const tel=pbEl(pgReal,'text',{x:cx,y:y+3.9,'text-anchor':'middle','font-family':'Arial,Helvetica,sans-serif','font-size':11,'font-weight':'bold',fill:INKT},t);
+                    heads.push({el:tel,k:'fill',u:ev.pos,e:ev.pos+ev.len,voice:0});
                 });
                 if(MODE==='tab'){
                     const ai=atkList.indexOf(ev), nx_=ai>=0&&ai<atkList.length-1?atkList[ai+1].pos:total, mEnd=(ev.m+1)*M;
@@ -4446,7 +4582,7 @@ function pbBuildScore(opts){
             });
         }
     });
-    return {svgs,W,H};
+    return {svgs,W,H,heads,lay,M};
 }
 
 function pbAccidental(g,x,y,a,SP,ink){
@@ -4494,6 +4630,26 @@ function pbRest(g,ev,cx,top,SP,M,ink){
         pbEl(g,'path',{d:`M${xx-SP*.6},${yy+SP*.1} Q${xx},${yy+SP*.3} ${xx+SP*.35},${yy-SP*.45}`,fill:'none',stroke:ink,'stroke-width':1.4,'stroke-linecap':'round'});
     }
     if(pbDotted(len)) pbEl(g,'circle',{cx:cx+SP*1.2,cy:mid-SP*.3,r:1.5,fill:ink});
+}
+// clave de Dó (3ª linha) — usada pela viola; o ponto central fica sobre a linha do meio (yM)
+function pbAltoClef(g,x,yM,SP){
+    const u=SP, X=a=>(x+a*u).toFixed(2), Y=b=>(yM+b*u).toFixed(2);
+    pbEl(g,'rect',{x:x,y:yM-2*u,width:.62*u,height:4*u,fill:'#111'});
+    pbEl(g,'line',{x1:x+1.02*u,y1:yM-2*u,x2:x+1.02*u,y2:yM+2*u,stroke:'#111','stroke-width':.16*u});
+    pbEl(g,'path',{d:`M${X(1.5)},${Y(-2.0)} C${X(3.5)},${Y(-2.35)} ${X(3.6)},${Y(-.35)} ${X(1.7)},${Y(-.1)} `+
+                     `M${X(1.5)},${Y(2.0)} C${X(3.5)},${Y(2.35)} ${X(3.6)},${Y(.35)} ${X(1.7)},${Y(.1)} `+
+                     `M${X(1.7)},${Y(-.1)} L${X(1.7)},${Y(.1)}`,
+        fill:'none',stroke:'#111','stroke-width':1.7,'stroke-linecap':'round','stroke-linejoin':'round'});
+    pbEl(g,'circle',{cx:x+1.5*u,cy:yM-2*u,r:.3*u,fill:'#111'});
+    pbEl(g,'circle',{cx:x+1.5*u,cy:yM+2*u,r:.3*u,fill:'#111'});
+}
+// clave de Fá (4ª linha) — usada pelo violoncelo; yF = linha do Fá
+function pbBassClef(g,x,yF,SP){
+    const u=SP, P=(a,b)=>`${(x+a*u).toFixed(2)},${(yF+b*u).toFixed(2)}`;
+    pbEl(g,'path',{d:`M${P(.4,0)} C${P(.4,-1.3)} ${P(2.3,-1.2)} ${P(2.4,.5)} C${P(2.45,1.7)} ${P(1.3,2.5)} ${P(-.2,3.1)}`,fill:'none',stroke:'#111','stroke-width':1.7,'stroke-linecap':'round'});
+    pbEl(g,'circle',{cx:x+.4*u,cy:yF,r:.5*u,fill:'#111'});
+    pbEl(g,'circle',{cx:x+3.1*u,cy:yF-.5*u,r:.26*u,fill:'#111'});
+    pbEl(g,'circle',{cx:x+3.1*u,cy:yF+.5*u,r:.26*u,fill:'#111'});
 }
 function pbTrebleClef(g,x,yG,SP){
     const u=SP, P=(a,b)=>`${(x+a*u).toFixed(2)},${(yG+b*u).toFixed(2)}`;
@@ -4856,28 +5012,48 @@ function makePdf(pages){
     return new Blob(chunks,{type:'application/pdf'});
 }
 let scoreData=null, scTimer=0;
+let scFromPlayer=false;
+function withScoreSource(fn){ return scFromPlayer?withPlayerSource(fn,gtVersionNotes($('scVoice').value||'cur')):fn(); }
+function scVoiceList(){   // versões do hino: as mesmas do seletor do player
+    if(!scFromPlayer) return [];
+    return [...document.querySelectorAll('#modeSel option')].map(o=>({id:o.value,name:o.textContent}));
+}
+function fillScVoice(){
+    const sel=$('scVoice'), prev=sel.value, used=scVoiceList();
+    sel.innerHTML=used.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
+    sel.value=[...sel.options].some(o=>o.value===prev)?prev:String(state.mode);
+    if(sel.selectedIndex<0&&sel.options.length) sel.selectedIndex=0;
+    sel.parentElement.style.display=used.length>1?'':'none';
+}
 function renderScoreModal(){
     const body=$('scBody'); body.innerHTML=''; scoreData=null; $('scPdf').disabled=true;
     const msg=t=>{ const d=document.createElement('div'); d.className='pb-msg'; d.textContent=t; body.append(d); };
-    if(!scoreNotes.length){ msg('Escreva algumas notas na composição e volte aqui para ver a partitura.'); return; }
+    if(!(scFromPlayer?(state.midiLoaded&&state.notes.length):scoreNotes.length)){ msg(scFromPlayer?'Abra um hino para ver a partitura.':'Escreva algumas notas na composição e volte aqui para ver a partitura.'); return; }
     try{
-        scoreData=pbBuildScore({title:$('scTitle').value,mode:$('scMode').value});
+        scoreData=withScoreSource(()=>pbBuildScore({title:$('scTitle').value,mode:$('scMode').value,voice:'all',ts:scFromPlayer?playerTs():undefined}));
         scoreData.svgs.forEach(svg=>{ const p=document.createElement('div'); p.className='pb-paper'; svg.removeAttribute('width'); svg.removeAttribute('height'); p.append(svg); body.append(p); });
-        $('scPdf').disabled=false;
+        $('scPdf').disabled=false; $('scPdf').textContent=PRO.ok?'⬇ Baixar PDF':'🔒 Baixar PDF (Pro)';
     }catch(e){ console.error(e); msg('Não foi possível montar a partitura desta composição.'); }
 }
-function openScore(){
-    $('scTitle').value=projName==='Sem título'?'':projName;
+function openScore(fromPlayer){
+    scFromPlayer=fromPlayer===true;
+    $('scTitle').value=scFromPlayer?(fileNameEl.textContent||'').replace(/\.(mid|midi|mxl|xml|musicxml)$/i,''):(projName==='Sem título'?'':projName);
+    $('scVoice').parentElement.style.display='none'; if(scFromPlayer) fillScVoice();
     closeModals(); openModal('mScore'); renderScoreModal();
 }
-$('pbScore').onclick=openScore; $('exScore').onclick=openScore;
+$('pbScore').onclick=()=>openScore(false); $('exScore').onclick=()=>openScore(false);
+$('pbPlayerScore').onclick=()=>{ if(!state.midiLoaded){ say('Abra um hino primeiro'); return; } openScore(true); };
 $('scMode').onchange=renderScoreModal;
+$('scVoice').onchange=renderScoreModal;
 $('scTitle').oninput=()=>{ clearTimeout(scTimer); scTimer=setTimeout(renderScoreModal,450); };
 $('scPdf').onclick=async()=>{
-    if(!scoreData) return; busy(true);
+    if(!scoreData) return;
+    if(!PRO.ok){ closeModals(); proPaywall('pdf'); return; }   // baixar a partitura/tablatura em PDF é só Pro
+    busy(true);
     try{
         const pgs=[]; for(const svg of scoreData.svgs) pgs.push(await svgToJpeg(svg,scoreData.W,scoreData.H,2.6));
-        download(safeName($('scTitle').value.trim()||projName)+'.pdf',makePdf(pgs));
+        const vs=$('scVoice').value, vn=(scFromPlayer&&scVoiceList().length>1)?' - '+((scVoiceList().find(v=>String(v.id)===vs)||{}).name||'').replace(/^🎸\s*/,'').replace(/:.*$/,''):'';
+        download(safeName(($('scTitle').value.trim()||projName)+vn)+'.pdf',makePdf(pgs));
         say('Partitura exportada em PDF',true);
     }catch(e){ console.error(e); say('Não foi possível gerar o PDF'); }
     busy(false);
