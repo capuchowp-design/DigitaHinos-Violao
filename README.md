@@ -1,4 +1,4 @@
-# Violão Bounce
+# DigitaHinos Violao
 
 Visualizador MIDI com violão animado: a digitação (casa, dedo da mão esquerda e dedo da mão direita p-i-m-a) aparece sobre o braço do violão, com a pauta e o compositor.
 
@@ -17,7 +17,7 @@ O violão mostra todas as cordas que soam juntas (baixo + melodia, acordes, dedi
 - O violão aparece **deitado**: braço à direita, caixa à esquerda. A faixa de cima mostra a pauta, o nome das notas e o acorde.
 - Uma **mão** (dedos 1–4) segura as casas no braço e se move com a música. Botão **🖐 Mão** liga/desliga; **🔍 Braço** amplia o braço e a câmera acompanha a mão.
 - No editor, **segure uma nota** (ou clique com o botão direito) para escolher o acorde; a letra aparece na linha **Ac.** sobre a nota e vale até o próximo acorde. O acorde **não muda o som**: só define a forma da mão. As cordas que soam são as notas da tablatura; se uma nota não faz parte do acorde, um dedo livre vai buscá-la (ex.: Dó maior + Ré na casa 3 da corda Si → mindinho).
-- Os acordes são salvos no projeto (JSON). Mude `CACHE_NAME` em `sw.js` a cada versão (agora `violao-bounce-v5`).
+- Os acordes são salvos no projeto (JSON). Mude `CACHE_NAME` em `sw.js` a cada versão (agora `digitahinos-violao-v14`).
 
 ## v7: mão fiel ao acorde e baixo contínuo
 - A mão agora escolhe os dedos de todas as notas **juntas**, mudando o mínimo possível da forma do acorde: se a corda de uma nota está ocupada por outro dedo do acorde, esse dedo sai e a nota vai para o dedo mais próximo (ex.: Dó maior + Lá casa 2 → o médio vai para a Lá; Si casa 3 → mindinho). Os dedos do acorde que não atrapalham continuam apoiados. O acorde vale até você escolher outro.

@@ -1,6 +1,6 @@
 {
-  "name": "Violão Bounce - Visualizador MIDI",
-  "short_name": "Violão Bounce",
+  "name": "DigitaHinos Violao - Visualizador MIDI",
+  "short_name": "DigitaHinos Violao",
   "description": "Visualizador MIDI com violão animado",
   "start_url": "./index.html",
   "display": "standalone",
