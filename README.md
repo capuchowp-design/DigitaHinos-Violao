@@ -30,3 +30,18 @@ O violão mostra todas as cordas que soam juntas (baixo + melodia, acordes, dedi
 
 ## v9
 - No braço, só os dedos que estão **fazendo soar uma corda** ficam em vermelho brilhante com o número. Os demais dedos da forma do acorde continuam visíveis, mas em cinza-transparente (neutro), sem brilho.
+
+## Harmonia "Cantoral (livro)"
+Em **Harmonia** há uma terceira opção, *Cantoral (livro)*, que usa as cifras do livro (arquivo `hinos/cifras.json`, uma lista de acordes por hino: compasso, tempo, raiz real e tipo). Hinos sem cifra no arquivo continuam com a harmonia automática. As opções *Simples* e *Melhor encaixe*, o modo básico/profissional, a troca de tom e a escolha de voz não mudaram.
+
+## Cordas soltas
+O dedilhado agora usa a corda solta sempre que ela dá exatamente a mesma nota e nenhuma outra nota está soando nessa corda ao mesmo tempo (função `vgOpenStrings`).
+
+## Estilo "Acompanhamento"
+Em **Estilo** há: *Fingerstyle · básico*, *Fingerstyle · profissional (dedilhado)* e **Acompanhamento**.
+No Acompanhamento o violão toca só as cifras e o **soprano toca ao fundo** (flauta, violino, harmônio ou violão; campo *Soprano ao fundo*).
+- **Ritmo:** *Batida* (golpes ↓ ↑) ou *Dedilhado* (P = polegar, sempre o baixo do acorde; I = indicador na 3ª corda; M = médio na 2ª; A = anelar na 1ª).
+- **Contagem:** os movimentos seguem a contagem do compasso do hino.
+  - *Simples*: um movimento por tempo. Ex.: 6/8 = batida ↓↓↑↓↓↑ e dedilhado P I M A M I; 4/4 = P I M A; 3/4 = P IMA IMA.
+  - *Subdividida*: "1 e 2 e 3 e…", o dobro de movimentos. Ex.: 6/8 = P I M A M I P I M A M I.
+  - *Mista*: primeira metade do compasso simples e segunda metade subdividida. Ex.: 4/4 = ↓ ↓ ↑↓↑↓ ↓↑↓↑.

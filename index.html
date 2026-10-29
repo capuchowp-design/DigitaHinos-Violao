@@ -758,8 +758,11 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
         </div>
         <div class="speed-control" id="modeCtl" style="display:none"><span>Voz:</span><select id="modeSel" aria-label="Voz a executar"></select></div>
         <div class="speed-control" id="keyCtl" style="display:none" title="Tom em que o hino é tocado (o app escolhe o mais fácil no violão)"><span>Tom:</span><select id="keySel" aria-label="Tom"></select></div>
-        <div class="speed-control" id="harmCtl" style="display:none" title="Simples: acordes básicos. Melhor encaixe: o acorde que combina melhor com o soprano e o baixo de cada tempo"><span>Harmonia:</span><select id="harmSel" aria-label="Harmonia"><option value="0">Simples</option><option value="1">Melhor encaixe</option></select></div>
-        <div class="speed-control" id="styleCtl" style="display:none" title="Básico: melodia + baixo. Profissional: dedilhado (fingerstyle simplificado) com notas do acorde entre o baixo e a melodia"><span>Estilo:</span><select id="styleSel" aria-label="Estilo"><option value="basic">Básico</option><option value="pro">Profissional (dedilhado)</option></select></div>
+        <div class="speed-control" id="harmCtl" style="display:none" title="Simples: acordes básicos. Melhor encaixe: o acorde que combina melhor com o soprano e o baixo de cada tempo. Cantoral: as cifras do livro (hinos com cifra disponível)"><span>Harmonia:</span><select id="harmSel" aria-label="Harmonia"><option value="0">Simples</option><option value="1">Melhor encaixe</option><option value="2">Cantoral (livro)</option></select></div>
+        <div class="speed-control" id="styleCtl" style="display:none" title="Básico: melodia + baixo. Profissional: dedilhado (fingerstyle simplificado) com notas do acorde entre o baixo e a melodia"><span>Estilo:</span><select id="styleSel" aria-label="Estilo"><option value="basic">Fingerstyle · básico</option><option value="pro">Fingerstyle · profissional (dedilhado)</option><option value="acomp">Acompanhamento (batida / dedilhado)</option></select></div>
+        <div class="speed-control" id="accCtl" style="display:none" title="Batida: acordes tocados com a mão direita (golpes). Dedilhado: acordes tocados corda a corda"><span>Ritmo:</span><select id="accSel" aria-label="Ritmo do acompanhamento"><option value="bat">Batida</option><option value="ded">Dedilhado</option></select></div>
+        <div class="speed-control" id="contCtl" style="display:none" title="Simples: um movimento por tempo do compasso (6/8 = 6 movimentos). Subdividida: 1 e 2 e 3 e... (o dobro de movimentos). Mista: começo simples e fim subdividido"><span>Contagem:</span><select id="contSel" aria-label="Contagem do acompanhamento"><option value="simple">Simples</option><option value="sub">Subdividida</option><option value="mix">Mista</option></select></div>
+        <div class="speed-control" id="bgCtl" style="display:none" title="Toca só o soprano ao fundo, para você ouvir o acompanhamento junto com o canto"><span>Soprano ao fundo:</span><select id="bgSel" aria-label="Soprano ao fundo"><option value="flute">Flauta</option><option value="violin">Violino</option><option value="harmonium">Harmônio</option><option value="violao">Violão</option><option value="off">Desligado</option></select></div>
         <button class="score-action-btn secondary" id="pbPlayerScore" title="Ver e baixar a partitura e a tablatura deste hino (Pro)">🎼 Partitura</button>
         <div class="volume-control">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
@@ -1247,7 +1250,7 @@ function parseMusicXML(text){
     const tm=[]; let sec=0;
     tempos.forEach((t,i)=>{ if(i>0){ const p=tempos[i-1]; sec+=(t.q-p.q)*60/p.bpm; } tm.push({q:t.q,s:sec,bpm:t.bpm}); });
     const toSec=q=>{ let k=tm.length-1; while(k>0&&tm[k].q>q+1e-9) k--; return tm[k].s+(q-tm[k].q)*60/tm[k].bpm; };
-    const measures=occ.map(o=>({s:toSec(o.q),e:toSec(o.q+len[o.mi]),q:len[o.mi],beats:MI[o.mi].beats||4,bt:MI[o.mi].bt||4}));
+    const measures=occ.map(o=>({mi:o.mi,s:toSec(o.q),e:toSec(o.q+len[o.mi]),q:len[o.mi],beats:MI[o.mi].beats||4,bt:MI[o.mi].bt||4}));
     // ligaduras de prolongamento
     abs.sort((a,b)=>a.s-b.s);
     const pend=new Map(), merged=[];
@@ -1410,7 +1413,7 @@ const state={
     totalNotes:0, animFrameId:null,
     pausedAt:0,
     sampler:null, samplerReady:false, piano:null, synth:null,
-    midiLoaded:false, src:null, mode:"all", keyPc:"auto", t:0, harm:false, style:'basic',
+    midiLoaded:false, src:null, mode:"all", keyPc:"auto", t:0, harm:false, cant:false, style:'basic', acc:'bat', cont:'simple', bg:'flute',
     pps:200  // pixels per second
 };
 
@@ -1474,9 +1477,11 @@ function setSynthBadge(mode){
     else if(mode==='loading') el.innerHTML='<span class="dot" style="background:#1f9d6b"></span>Carregando violão…';
     else el.innerHTML='<span class="dot" style="background:#3fbf8a"></span>Sintetizador';
 }
+let BG={name:null,smp:null};   // instrumento do soprano ao fundo (Acompanhamento)
 function applyVolume(){
     const db=Tone.gainToDb(Math.max(0.0001,state.volume));
     [state.piano,state.synth].forEach(n=>{ try{ if(n) n.volume.value=db; }catch(e){} });
+    try{ if(BG.smp) BG.smp.volume.value=db-3; }catch(e){}
 }
 // cadeia de saída compartilhada: instrumento → reverb leve → limitador → alto-falante
 let outChain=null;
@@ -1821,14 +1826,164 @@ function vgPlan(src,t){
             }
         });
     }
+    vgOpenStrings(out);
     out.sort((a,b)=>a.startTime-b.startTime);
     return {notes:out,tl,pieces,Vs};
+}
+// Usa a corda solta sempre que ela dá exatamente a mesma nota e nenhuma outra nota está soando nessa corda ao mesmo tempo
+// (ex.: Mi agudo na corda Si, casa 5 -> Mi solta; Si na corda Sol, casa 4 -> Si solta).
+function vgOpenStrings(notes){
+    const ns=notes.filter(n=>n.fix&&n.fix.fret>0).sort((a,b)=>a.startTime-b.startTime);
+    const busy=(s,n)=>notes.some(m=>m!==n&&m.fix&&m.fix.s===s&&m.startTime<n.endTime-0.01&&m.endTime>n.startTime+0.01);
+    ns.forEach(n=>{
+        const c=[]; for(let s=0;s<6;s++) if(GUITAR_OPEN[s]===n.midi&&!busy(s,n)) c.push(s);
+        if(c.length) n.fix={s:c[0],fret:0};
+    });
 }
 
 function vgMakeSrc(parsed){
     const src={notes:parsed.notes,duration:parsed.duration,measures:parsed.measures||null,voiceNames:parsed.voiceNames||null};
     if(vgIsSatb(src)){ const an=vgAnalyze(src); if(an){ src.an=an; src.anB=an; src.tonic=an.tonic; src.minor=an.minor; } }
     return src;
+}
+// ---- Cantoral: acordes do livro (hinos/cifras.json). Cada acorde = [compasso, tempo(semínimas), raiz(0=Dó, som real), tipo] ----
+let CIFRAS=null;
+async function vgLoadCifras(){ if(CIFRAS) return CIFRAS; try{ const r=await fetch('hinos/cifras.json'); if(r.ok) CIFRAS=await r.json(); }catch(e){} return CIFRAS; }
+function vgAttachCifra(src,n){
+    src.anC=null;
+    if(!CIFRAS||!n||!src.measures||!src.anB) return;
+    const d=CIFRAS[String(n)]; if(!d||!d.k||!d.k.length) return;
+    const byMi=new Map(); d.k.forEach(c=>{ if(!byMi.has(c[0])) byMi.set(c[0],[]); byMi.get(c[0]).push(c); });
+    const ev=[];
+    src.measures.forEach(m=>{ const a=byMi.get(m.mi); if(!a) return; a.forEach(c=>ev.push({s:m.s+(c[1]/(m.q||1))*(m.e-m.s),root:c[2],q:c[3]})); });
+    if(!ev.length) return;
+    ev.sort((a,b)=>a.s-b.s); ev[0].s=0;
+    const end=src.measures[src.measures.length-1].e, prog=[];
+    ev.forEach((c,i)=>{ const e=i+1<ev.length?ev[i+1].s:end, last=prog[prog.length-1]; if(last&&last.root===c.root&&last.q===c.q) last.e=e; else prog.push({s:c.s,e,root:c.root,q:c.q}); });
+    src.anC={tonic:src.anB.tonic,minor:src.anB.minor,prog};
+}
+// ======================== ACOMPANHAMENTO: batida / dedilhado ========================
+// Os movimentos seguem a contagem do compasso: U = nº de movimentos por compasso (6/8 = 6 colcheias, 4/4 = 4 tempos, 3/4 = 3...).
+//  · Simples: 1 movimento por tempo · Subdividida: "1 e 2 e 3 e..." (o dobro) · Mista: 1ª metade simples + 2ª metade subdividida.
+// Dedilhado: P = polegar (sempre o baixo do acorde) · I = indicador (3ª corda, sol) · M = médio (2ª, si) · A = anelar (1ª, mi agudo)
+// Batida: d = para baixo · u = para cima
+function vgMeter(src){
+    const c={}; src.measures.forEach(m=>{ const k=(m.beats||4)+'|'+(m.bt||4); c[k]=(c[k]||0)+1; });
+    const k=Object.keys(c).sort((a,b)=>c[b]-c[a])[0]||'4|4', [b,t]=k.split('|').map(Number);
+    const U=t===2?b*2:b, uq=t===2?1:4/t;        // 2/2 e 3/2 contam em semínimas
+    return {U,uq,barQ:U*uq,beats:b,bt:t};
+}
+const ACC_PIMAMI=[[0],[1],[2],[3],[2],[1]];
+const accRep=(a,n)=>{ let r=[]; for(let i=0;i<n;i++) r=r.concat(a); return r; };
+function accHalf(U){ return U%6===0?U/2:(U===9?6:Math.ceil(U/2)); }
+function accDedSimple(U){
+    if(U===2) return [[0],[1,2,3]];
+    if(U===3) return [[0],[1,2,3],[1,2,3]];
+    if(U===4) return [[0],[1],[2],[3]];
+    if(U%6===0) return accRep(ACC_PIMAMI,U/6);
+    if(U===9) return accRep([[0],[1],[2]],3);
+    return Array.from({length:U},(_,i)=>[i%4]);
+}
+function accDedSub(U){
+    const N=U*2;
+    if(U===2) return [[0],[1],[2],[3]];
+    if(U===4) return accRep([[0],[1],[2],[3]],2);
+    if(N%6===0) return accRep(ACC_PIMAMI,N/6);
+    return Array.from({length:N},(_,i)=>[i%4]);
+}
+// retorna [{pos (em unidades do compasso), d:[alvos]}]
+function accDed(U,cont){
+    const si=accDedSimple(U), sb=accDedSub(U), out=[];
+    if(cont==='simple') si.forEach((d,i)=>out.push({pos:i,d}));
+    else if(cont==='sub') sb.forEach((d,i)=>out.push({pos:i/2,d}));
+    else { const H=accHalf(U); si.forEach((d,i)=>{ if(i<H) out.push({pos:i,d}); }); sb.forEach((d,j)=>{ if(j>=2*H) out.push({pos:j/2,d}); }); }
+    return out;
+}
+function accBatSimple(U){
+    if(U===2) return ['d','d'];
+    if(U===3) return ['d','d','u'];
+    if(U===4) return ['d','d','u','d'];
+    return Array.from({length:U},(_,i)=>i%3===2?'u':'d');       // 6/8: ↓ ↓ ↑ ↓ ↓ ↑
+}
+// retorna [{pos, k:'d'|'u'}]
+function accBat(U,cont){
+    const si=accBatSimple(U), out=[];
+    if(cont==='simple') si.forEach((k,i)=>out.push({pos:i,k}));
+    else if(cont==='sub') for(let i=0;i<U;i++){ out.push({pos:i,k:'d'},{pos:i+.5,k:'u'}); }
+    else {
+        const H=accHalf(U); si.forEach((k,i)=>{ if(i<H) out.push({pos:i,k}); });
+        for(let u=H;u<U;u++){
+            if(U<=4){ const st=((u-H)%2===0)?'u':'d', op=st==='u'?'d':'u'; [st,op,st,op].forEach((k,j)=>out.push({pos:u+j*.25,k})); }   // 1 tempo vira 4 semicolcheias
+            else { out.push({pos:u,k:'d'},{pos:u+.5,k:'u'}); }                                                                         // 1 colcheia vira 2 semicolcheias
+        }
+    }
+    return out;
+}
+const ACC_CONT={simple:'simples',sub:'subdividida',mix:'mista'};
+function vgAccToast(){ const a=state.src&&state.src.accInfo; return a?('Acompanhamento: '+(a.kind?'dedilhado':'batida')+' · '+ACC_CONT[a.cont]+' ('+a.beats+'/'+a.bt+')'):'Acompanhamento'; }
+async function vgLoadBg(name){
+    if(!name||name==='off'||name==='violao'){ return; }
+    if(BG.name===name&&BG.smp) return;
+    BG.name=name; BG.smp=null;
+    let out; try{ out=await getOutChain(); }catch(e){ out=Tone.getDestination(); }
+    for(const root of ['https://nbrosowsky.github.io/tonejs-instruments/samples/','https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/']){
+        try{ const smp=await loadPianoFrom(root+name+'/',out); if(BG.name===name){ BG.smp=smp; applyVolume(); } else { try{smp.dispose();}catch(e){} } return; }catch(e){}
+    }
+}
+function vgPlanAcomp(src,t){
+    const kind=state.acc==='ded'?1:0, cont=state.cont, M=vgMeter(src), pat=kind?accDed(M.U,cont):accBat(M.U,cont);
+    src.accInfo={kind,cont,beats:M.beats,bt:M.bt};
+    const prog=src.an.prog, ms=src.measures, rootOf=c=>((c.root+t)%12+12)%12;
+    // 1) forma de cada acorde: com baixo (e, no dedilhado, com as 3 cordas agudas), perto da forma anterior
+    const C=prog.map(c=>{
+        let l=vgCands(rootOf(c),c.q).filter(V=>V.strs.length>=4&&V.strs[0].s<=2&&(!kind||V.strs.filter(x=>x.s>=3).length===3));
+        if(!l.length) l=vgCands(rootOf(c),c.q).filter(V=>V.strs.length>=4&&V.strs[0].s<=2);
+        if(!l.length) l=vgCands(rootOf(c),c.q); return l; });
+    const tc=(a,b)=>a.key===b.key?0:.2+.2*Math.abs(a.cen-b.cen);
+    let prev=C[0].map(V=>V.diff); const from=[null];
+    for(let i=1;i<C.length;i++){
+        const cur=[], fr=[];
+        C[i].forEach((V,k)=>{ let bv=1e9,bj=0; C[i-1].forEach((U,j)=>{ const v=prev[j]+tc(U,V); if(v<bv){ bv=v; bj=j; } }); cur[k]=bv+V.diff; fr[k]=bj; });
+        prev=cur; from.push(fr);
+    }
+    let kk=0; for(let j=1;j<prev.length;j++) if(prev[j]<prev[kk]) kk=j;
+    const Vs=new Array(prog.length); for(let i=prog.length-1;i>=0;i--){ Vs[i]=C[i][kk]; if(i>0) kk=from[i][kk]; }
+    const chordAt=tm=>{ let k=0; for(let i=0;i<prog.length;i++){ if(prog[i].s<=tm+0.001) k=i; else break; } return k; };
+    // 2) movimentos do padrão, compasso a compasso (a anacruse cai no fim do padrão)
+    const evs=[]; let ph=0;
+    ms.forEach((m,i)=>{
+        const Lu=(m.q||M.barQ)/M.uq, d=m.e-m.s; if(d<=0) return;
+        ph=(i===0&&Lu<M.U-1e-6)?M.U-Lu:0;
+        pat.forEach(p=>{ const u=p.pos-ph; if(u<-1e-6||u>=Lu-1e-6) return; evs.push(Object.assign({t:m.s+u/Lu*d,pos:p.pos},p.d?{d:p.d}:{k:p.k})); });
+    });
+    // troca de acorde fora dos movimentos do padrão: entra o baixo (dedilhado) ou um golpe para baixo (batida)
+    prog.forEach(c=>{ if(!evs.some(e=>Math.abs(e.t-c.s)<0.08)) evs.push(kind?{t:c.s,pos:0,d:[0]}:{t:c.s,pos:0,k:'d'}); });
+    evs.sort((a,b)=>a.t-b.t);
+    const out=[];
+    const add=(V,s,tm,vel,sus)=>{ const st=V.strs.find(x=>x.s===s); if(!st) return; out.push({midi:st.pitch,startTime:tm,endTime:tm+sus,duration:sus,velocity:Math.min(.95,vel),track:s<=2?3:2,acc:true,fix:{s:st.s,fret:st.fret}}); };
+    const nearStr=(V,target)=>{ if(target===0) return V.strs[0].s; const want=target+2, ok=V.strs.filter(x=>x.s>=3); if(!ok.length) return V.strs[V.strs.length-1].s; return ok.slice().sort((a,b)=>Math.abs(a.s-want)-Math.abs(b.s-want)||b.s-a.s)[0].s; };
+    evs.forEach((e,i)=>{
+        const ci=chordAt(e.t), c=prog[ci], V=Vs[ci], nextT=i+1<evs.length?evs[i+1].t:c.e;
+        const gap=Math.max(0.1,Math.min(nextT,c.e)-e.t), sus=Math.max(0.12,Math.min(gap*1.6,c.e-e.t+0.05));
+        if(e.d){                                           // dedilhado: P = baixo · I, M, A = cada dedo na sua corda
+            const ss=[...new Set(e.d.map(g=>nearStr(V,g)))].sort((a,b)=>a-b);
+            ss.forEach((s,j)=>add(V,s,e.t+j*0.014,s<=2?.74:.58,sus));
+        } else if(e.k==='d'){                              // para baixo: todas as cordas do acorde, do grave ao agudo
+            const base=e.pos===0?.78:(Number.isInteger(e.pos)?.66:.56);
+            V.strs.forEach((x,j)=>add(V,x.s,e.t+j*0.009,base*(j===0?1.1:1),sus));
+        } else {                                           // para cima: só as cordas mais agudas, do agudo ao grave
+            V.strs.filter(x=>x.s>=2).reverse().forEach((x,j)=>add(V,x.s,e.t+j*0.008,.44,sus));
+        }
+    });
+    // a mesma corda não soa duas notas ao mesmo tempo
+    const byS={}; out.forEach(n=>{ (byS[n.fix.s]=byS[n.fix.s]||[]).push(n); });
+    Object.values(byS).forEach(a=>{ a.sort((x,y)=>x.startTime-y.startTime); a.forEach((n,i)=>{ const nx=a[i+1]; if(nx&&nx.startTime<n.endTime-0.005){ n.endTime=Math.max(n.startTime+0.05,nx.startTime-0.01); n.duration=n.endTime-n.startTime; } }); });
+    vgOpenStrings(out);
+    // soprano ao fundo (só para ouvir o acompanhamento junto com o canto)
+    if(state.bg!=='off') src.notes.filter(n=>(n.track|0)===0&&!n.dup).forEach(n=>out.push({midi:Math.max(0,Math.min(127,n.midi+t)),startTime:n.startTime,endTime:n.endTime,duration:n.duration,velocity:Math.min(.85,(n.velocity||.7)*.9),track:0,bg:true}));
+    out.sort((a,b)=>a.startTime-b.startTime);
+    const tl=[]; prog.forEach((c,i)=>{ const l=tl[tl.length-1], r=rootOf(c); if(!(l&&l.root===r&&l.q===c.q&&l.v.key===Vs[i].key)) tl.push({t:c.s,root:r,q:c.q,v:Vs[i]}); });
+    return {notes:out,tl};
 }
 function vgNotesFor(src,mode,t){
     const mk=(n,dm)=>({midi:Math.max(0,Math.min(127,n.midi+dm)),startTime:n.startTime,endTime:n.endTime,duration:n.duration,velocity:n.velocity,track:n.track|0});
@@ -1851,13 +2006,13 @@ function vgNotesFor(src,mode,t){
 }
 async function vgRebuild(keep){
     const src=state.src; if(!src) return;
-    if(src.anB) src.an=state.harm?(src.anH||(src.anH=vgAnalyze(src,true))):src.anB;
+    if(src.anB) src.an=(state.cant&&src.anC)?src.anC:state.harm?(src.anH||(src.anH=vgAnalyze(src,true))):src.anB;
     const mode=state.mode, kp=state.keyPc, satb=!!src.an;
     const auto=satb?vgBestT(src,mode,null):0;
     const t=!satb?0:(kp==='auto'?auto:kp==='orig'?0:vgBestT(src,mode,kp));
     state.t=t;
     let notes, tl=[];
-    if(satb&&mode==='violao'){ const pl=vgPlan(src,t); notes=pl.notes; tl=pl.tl; }
+    if(satb&&mode==='violao'){ const pl=(state.style==='acomp')?vgPlanAcomp(src,t):vgPlan(src,t); notes=pl.notes; tl=pl.tl; if(state.style==='acomp'&&state.bg!=='off'&&state.bg!=='violao') vgLoadBg(state.bg); }
     else { notes=vgNotesFor(src,mode,t); if(satb&&mode==='all') tl=src.an.prog.map(c=>({t:c.s,root:((c.root+t)%12+12)%12,q:c.q})); }
     window.vgChordTL=tl;
     if(satb){
@@ -1866,13 +2021,15 @@ async function vgRebuild(keep){
         ks.options[1].textContent='Original ('+vgKeyName(src.tonic,src.minor)+')';
         ks.value=String(kp);
     }
-    document.getElementById('styleCtl').style.display=(satb&&mode==='violao')?'flex':'none';
+    const fl=(satb&&mode==='violao');
+    document.getElementById('styleCtl').style.display=fl?'flex':'none';
+    ['accCtl','contCtl','bgCtl'].forEach(id=>{ document.getElementById(id).style.display=(fl&&state.style==='acomp')?'flex':'none'; });
     const was=state.isPlaying, tm=state.currentTime;
     if(was) pausePlayback();
     await applyNotes(notes,src.duration,{fromSrc:true,keepTime:keep?tm:null});
     if(was) startPlayback();
 }
-function vgModeUI(show){ document.getElementById('modeCtl').style.display=show?'flex':'none'; const sa=show&&state.src&&state.src.an?'flex':'none'; document.getElementById('keyCtl').style.display=sa; document.getElementById('harmCtl').style.display=sa; if(!sa) document.getElementById('styleCtl').style.display='none'; }
+function vgModeUI(show){ document.getElementById('modeCtl').style.display=show?'flex':'none'; const sa=show&&state.src&&state.src.an?'flex':'none'; document.getElementById('keyCtl').style.display=sa; document.getElementById('harmCtl').style.display=sa; if(!sa){ ['styleCtl','accCtl','contCtl','bgCtl'].forEach(id=>{ document.getElementById(id).style.display='none'; }); } }
 function vgBuildMode(){
     const src=state.src, ids=[...new Set(src.notes.map(n=>n.track|0))].sort((a,b)=>a-b), satb=!!src.an;
     let h=satb?'<option value="violao">🎸 Violão: melodia + baixo + acordes</option>':'';
@@ -1884,31 +2041,36 @@ function vgBuildMode(){
         for(let pc=0;pc<12;pc++) k+=`<option value="${pc}">${vgKeyName(pc,src.minor)}</option>`;
         document.getElementById('keySel').innerHTML=k;
     }
-    document.getElementById('harmSel').value=state.harm?'1':'0'; document.getElementById('styleSel').value=state.style;
+    document.getElementById('harmSel').value=state.cant?'2':state.harm?'1':'0'; document.getElementById('styleSel').value=state.style;
+    document.getElementById('accSel').value=state.acc; document.getElementById('contSel').value=state.cont; document.getElementById('bgSel').value=state.bg;
     vgModeUI(satb||ids.length>1);
 }
 document.getElementById('modeSel').addEventListener('change',e=>{ const v=e.target.value; state.mode=(v==='violao'||v==='all')?v:parseInt(v); vgRebuild(true); });
-try{ state.harm=localStorage.getItem('vgHarm')==='1'; state.style=localStorage.getItem('vgStyle')==='pro'?'pro':'basic'; }catch(e){}
+try{ const hv=localStorage.getItem('vgHarm'); state.harm=hv==='1'; state.cant=hv==='2'; const sv=localStorage.getItem('vgStyle'); state.style=(sv==='pro'||sv==='acomp')?sv:'basic'; const a=localStorage.getItem('vgAcc'); state.acc=a==='ded'?'ded':'bat'; const p=localStorage.getItem('vgCont'); state.cont=(p==='sub'||p==='mix')?p:'simple'; const b=localStorage.getItem('vgBg'); state.bg=['off','flute','violin','harmonium','violao'].includes(b)?b:'flute'; }catch(e){}
 document.getElementById('styleSel').addEventListener('change',async e=>{
-    state.style=e.target.value==='pro'?'pro':'basic'; try{ localStorage.setItem('vgStyle',state.style); }catch(x){}
+    const v=e.target.value; state.style=v==='pro'?'pro':v==='acomp'?'acomp':'basic'; try{ localStorage.setItem('vgStyle',state.style); }catch(x){}
     await vgRebuild(true);
-    toast(state.style==='pro'?'Estilo profissional: dedilhado com notas internas do acorde':'Estilo básico: melodia + baixo','success');
+    toast(state.style==='acomp'?vgAccToast():state.style==='pro'?'Fingerstyle profissional: dedilhado com notas internas do acorde':'Fingerstyle básico: melodia + baixo','success');
 });
+document.getElementById('accSel').addEventListener('change',async e=>{ state.acc=e.target.value==='ded'?'ded':'bat'; try{ localStorage.setItem('vgAcc',state.acc); }catch(x){} await vgRebuild(true); toast(vgAccToast(),'success'); });
+document.getElementById('contSel').addEventListener('change',async e=>{ const p=e.target.value; state.cont=(p==='sub'||p==='mix')?p:'simple'; try{ localStorage.setItem('vgCont',state.cont); }catch(x){} await vgRebuild(true); toast(vgAccToast(),'success'); });
+document.getElementById('bgSel').addEventListener('change',async e=>{ const b=e.target.value; state.bg=['off','flute','violin','harmonium','violao'].includes(b)?b:'flute'; try{ localStorage.setItem('vgBg',state.bg); }catch(x){} await vgRebuild(true); toast(state.bg==='off'?'Soprano ao fundo desligado':'Soprano ao fundo: '+e.target.options[e.target.selectedIndex].text,'success'); });
 document.getElementById('harmSel').addEventListener('change',async e=>{
-    state.harm=e.target.value==='1'; try{ localStorage.setItem('vgHarm',state.harm?'1':'0'); }catch(x){}
+    const hv=e.target.value; state.harm=hv==='1'; state.cant=hv==='2'; try{ localStorage.setItem('vgHarm',hv); }catch(x){}
     await vgRebuild(true);
-    if(state.src&&state.src.an) toast((state.harm?'Harmonia: melhor encaixe':'Harmonia: simples')+' · '+state.src.an.prog.length+' acordes','success');
+    if(state.cant&&state.src&&!state.src.anC){ document.getElementById('harmSel').value='0'; toast('Este hino não tem cifra do cantoral — usando a harmonia Simples'); return; }
+    if(state.src&&state.src.an) toast((state.cant?'Harmonia: cantoral (livro)':state.harm?'Harmonia: melhor encaixe':'Harmonia: simples')+' · '+state.src.an.prog.length+' acordes','success');
 });
 document.getElementById('keySel').addEventListener('change',e=>{ const v=e.target.value; state.keyPc=(v==='auto'||v==='orig')?v:parseInt(v); vgRebuild(true); });
 
-async function loadBuffer(buf,name){
+async function loadBuffer(buf,name,hn){
     state.hinoN=null;                       // só vale para hino da biblioteca (openHino marca depois)
     loadingOverlay.classList.add('active');
     fileNameEl.textContent=name;
     try {
         const parsed=await parseAnyScore(buf);
         if(!parsed.notes.length) throw new Error('Nenhuma nota encontrada');
-        const src=vgMakeSrc(parsed); state.src=src;
+        const src=vgMakeSrc(parsed); src.hymnN=hn||null; if(hn) vgAttachCifra(src,hn); state.src=src;
         state.srcBpm=parsed.bpm; state.srcTs=parsed.timeSig; state.srcTm=parsed.tm; state.srcPickup=parsed.pickup||0; state.srcKey=parsed.key;
         state.mode=src.an?'violao':'all'; state.keyPc='auto';
         vgBuildMode(); await vgRebuild(false);
@@ -2076,7 +2238,8 @@ async function openHino(h){
     try{
         const r=await fetch('hinos/'+h.f); if(!r.ok) throw new Error('arquivo não encontrado');
         switchView('player');
-        await loadBuffer(await r.arrayBuffer(),String(h.n).padStart(3,'0')+' – '+h.t);
+        await vgLoadCifras();
+        await loadBuffer(await r.arrayBuffer(),String(h.n).padStart(3,'0')+' – '+h.t,h.n);
         state.hinoN=h.n; updateUI();
         if(proLimit()<Infinity) toast('Prévia de '+PRO_CFG.previewSec+' s · hinos 1 a '+PRO_CFG.freeHinos+' são completos · toque em ⭐ Pro para liberar tudo');
     }catch(e){ loadingOverlay.classList.remove('active'); toast('Erro: '+e.message); }
@@ -2145,7 +2308,7 @@ async function startPlayback(){
         const dur=Math.max(0.05, remain/spd);
         Tone.Transport.schedule(time=>{
             if(!state.isPlaying||!state.sampler||!state.samplerReady) return;
-            try { state.sampler.triggerAttackRelease(nname(note.midi), dur, time, note.velocity); } catch(e){}
+            try { const smp=(note.bg&&BG.smp)?BG.smp:state.sampler; smp.triggerAttackRelease(nname(note.midi), dur, time, note.velocity); } catch(e){}
         }, tStart);
     });
 
@@ -2159,6 +2322,7 @@ function clearAudio(){
     if(state.sampler&&state.samplerReady){
         try{ if(state.sampler.releaseAll) state.sampler.releaseAll(); }catch(e){}
     }
+    try{ if(BG.smp) BG.smp.releaseAll(); }catch(e){}
 }
 
 function pausePlayback(){
@@ -2347,18 +2511,19 @@ function gAssignTimeline(items,tol){
     }
     return res;
 }
-let gAssignMap=new Map(), gAssignSrc=null, gAssignLen=-1;
+let gAssignMap=new Map(), gAssignSrc=null, gAssignLen=-1, gNl=[];
 function gActiveNotes(act){
     if(!act.length) return [];
-    const nl=state.notes||[];
-    if(gAssignSrc!==nl||gAssignLen!==nl.length){
-        gAssignSrc=nl; gAssignLen=nl.length;
-        try{ gAssignMap=gAssignTimeline(nl.map(n=>({key:n,u:n.startTime,e:n.endTime,midi:n.midi,fix:n.fix})),0.02); }catch(e){ gAssignMap=new Map(); }
+    const all=state.notes||[];
+    if(gAssignSrc!==all||gAssignLen!==all.length){
+        gAssignSrc=all; gAssignLen=all.length; gNl=all.filter(n=>!n.bg);   // o soprano ao fundo (Acompanhamento) não aparece no braço
+        try{ gAssignMap=gAssignTimeline(gNl.map(n=>({key:n,u:n.startTime,e:n.endTime,midi:n.midi,fix:n.fix})),0.02); }catch(e){ gAssignMap=new Map(); }
     }
-    const t=state.currentTime, out=[], miss=[];
+    const nl=gNl, t=state.currentTime, out=[], miss=[];
     act.forEach(k=>{
         const note=nl.find(n=>n.midi===k.midi&&t>=n.startTime&&t<=n.endTime), a=note&&gAssignMap.get(note);
-        if(a) out.push({midi:k.midi,color:k.activeColor,s:a.s,fret:a.fret}); else miss.push(k);
+        if(a) out.push({midi:k.midi,color:k.activeColor,s:a.s,fret:a.fret});
+        else if(!all.some(n=>n.bg&&n.midi===k.midi&&t>=n.startTime&&t<=n.endTime)) miss.push(k);
     });
     if(miss.length){ const pick=gPick(miss.map(k=>k.midi),out); miss.forEach((k,i)=>out.push({midi:k.midi,color:k.activeColor,s:pick[i].s,fret:pick[i].fret})); }
     // dedos da mão esquerda: uma posição só para todas as notas apertadas
@@ -4153,7 +4318,8 @@ function liveU(t){
 function liveScoreUpdate(){
     const host=liveHost();
     if(!state.midiLoaded||!state.notes.length){ host.style.display='none'; return; }
-    const sig=[state.mode,state.t,state.style,state.harm?1:0,state.srcBpm,state.srcTs,state.srcPickup,state.srcKey].join('|');
+    if(state.style==='acomp'&&state.src&&state.src.an&&state.mode==='violao'){ host.style.display='none'; return; }
+    const sig=[state.mode,state.t,state.style,state.harm?1:0,state.cant?1:0,state.srcBpm,state.srcTs,state.srcPickup,state.srcKey].join('|');
     if(LIVE.notesRef!==state.notes||LIVE.sig!==sig){ LIVE.notesRef=state.notes; LIVE.sig=sig; liveBuild(); }
     if(!LIVE.ok){ host.style.display='none'; return; }
     host.style.display='flex';
