@@ -2828,11 +2828,14 @@ function gBodyPath(CX){
 }
 // corpo do violão folk (cordas de aço): caixa larga, cintura marcada e recorte (cutaway) no lado das cordas agudas
 function gBodyPathFolk(CX){
-    // lado das agudas (+x): o contorno acompanha o braço e abre num recorte até a cintura
+    // lado das agudas (+x): recorte desenhado à mão — acompanha o braço, faz um degrau reto para fora (≈ casa 15),
+    // forma a ponta arredondada do ombro e só então volta para a cintura (o ombro NÃO é removido por inteiro)
     const p=new Path2D(); p.moveTo(CX+66,500);
-    p.bezierCurveTo(CX+66,560,CX+80,640,CX+112,672);
-    p.bezierCurveTo(CX+130,690,CX+144,702,CX+148,724);
-    p.bezierCurveTo(CX+150,752,CX+192,758,CX+192,832);
+    p.bezierCurveTo(CX+66,524,CX+74,548,CX+86,562);       // junto ao braço
+    p.bezierCurveTo(CX+104,564,CX+132,564,CX+152,572);    // degrau (quase perpendicular ao braço)
+    p.bezierCurveTo(CX+166,586,CX+162,612,CX+148,634);    // ponta arredondada do ombro
+    p.bezierCurveTo(CX+136,652,CX+120,672,CX+120,704);    // volta para a cintura
+    p.bezierCurveTo(CX+121,742,CX+192,752,CX+192,832);    // caixa inferior
     p.bezierCurveTo(CX+192,902,CX+124,942,CX,942);
     // lado das graves (-x): ombro completo
     const segs=[[[112,515],[148,552],[146,602]],[[144,648],[114,668],[115,704]],[[117,742],[192,752],[192,832]],[[192,902],[124,942],[0,942]]];
