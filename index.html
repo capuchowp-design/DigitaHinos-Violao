@@ -1026,7 +1026,7 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
       <button class="score-action-btn primary" id="scPdf" style="margin-left:auto">⬇ Baixar PDF</button>
     </div>
     <div class="pb-body" id="scBody" style="padding:14px 10px"></div>
-    <div class="pb-fine" style="padding:8px 16px 10px;margin:0;border-top:1px solid var(--border-main)">Na tablatura, o número é a casa e cada linha é uma corda (a de baixo é a Mi grave). O ritmo é arredondado para fusas (1/32). Notas simultâneas (cordas duplas) viram acordes e notas que passam da barra do compasso são ligadas.</div>
+    <div class="pb-fine" style="padding:8px 16px 10px;margin:0;border-top:1px solid var(--border-main)">Na tablatura, o número é a casa e cada linha é uma corda (a de baixo é a Mi grave). O ritmo é arredondado para fusas (1/32). Notas simultâneas (cordas duplas) viram acordes e notas que passam da barra do compasso são ligadas. Os diagramas de acorde mostram a forma da mão esquerda (número = dedo, ○ = corda solta, × = corda não tocada).</div>
   </div>
 </div>
 
@@ -4292,7 +4292,7 @@ function liveHost(){
     }catch(e){}
     return h;
 }
-const LIVE_EXTRA=46, LIVE_DW=56;
+const LIVE_DW=56;
 // largura lógica da partitura ao vivo: acompanha a tela (em telas estreitas as letras ficam maiores)
 function liveW(){ const w=canvasContainer.getBoundingClientRect().width||840; return Math.max(560,Math.min(840,Math.round(w/20)*20)); }
 // posição horizontal (x) de um ponto da música (u, em fusas) dentro de uma linha da tablatura
@@ -4308,7 +4308,7 @@ function liveX(L,u){
 // diagrama de acorde em SVG (o mesmo desenho/forma que a mão mostra no violão)
 function liveDiagram(svg,cx,top,v,label){
     const g=pbEl(svg,'g',{}), INK='#222', RED='#e8590c', DW=LIVE_DW;
-    const frame=pbEl(g,'rect',{x:cx-DW/2,y:top,width:DW,height:LIVE_EXTRA+24,rx:6,fill:'#fff',stroke:'#d6d6d6','stroke-width':1});
+    const frame=pbEl(g,'rect',{x:cx-DW/2,y:top,width:DW,height:70,rx:6,fill:'#fff',stroke:'#d6d6d6','stroke-width':1});
     const frs=v.frets.filter(f=>f>0), hi=frs.length?Math.max(...frs):0, lo=frs.length?Math.min(...frs):0;
     const start=hi<=4?1:lo, rows=Math.max(4,Math.min(5,hi-start+1));
     const gx0=cx-20, gx1=cx+20, sx=i=>gx0+(gx1-gx0)*i/5, gy=top+28, fh=40/rows;
@@ -4335,37 +4335,20 @@ function liveDiagram(svg,cx,top,v,label){
     });
     return frame;
 }
-function liveDrawChords(tl,W){
-    const lay=LIVE.lay, per=lay.map(()=>[]);
-    tl.forEach(c=>{
-        const u=liveU(c.t); let si=lay.findIndex(L=>u<L.u1-1e-6); if(si<0) si=lay.length-1;
-        per[si].push({c,u});
-    });
-    per.forEach((arr,si)=>{
-        const L=lay[si], svg=LIVE.svgs[L.page]; let prev=-1e9;
-        arr.sort((a,b)=>a.u-b.u).forEach(({c,u})=>{
-            let cx=Math.max(liveX(L,u),52+LIVE_DW/2+2, prev+LIVE_DW+2);
-            if(cx+LIVE_DW/2>W-8){ LIVE.chords.push({t:c.t,el:null}); return; }
-            prev=cx;
-            const v=c.v||chVoicing(c.root,c.q);
-            LIVE.chords.push({t:c.t,el:liveDiagram(svg,cx,L.y0+4,v,chName(c))});
-        });
-    });
-    LIVE.chords.sort((a,b)=>a.t-b.t);
-}
 function liveBuild(){
     LIVE.svgs=[]; LIVE.lay=[]; LIVE.heads=[]; LIVE.map=[]; LIVE.act=[]; LIVE.shown=null; LIVE.sys=-1; LIVE.ok=false;
     try{
         const src=playerScoreNotes(state.notes);
         const tlc=window.vgChordTL||[]; LIVE.tlRef=tlc; LIVE.chords=[]; LIVE.ci=-1;
-        // só tablatura; se o hino tem acordes, reserva espaço acima dela para os diagramas
-        const sd=withPlayerSource(()=>pbBuildScore({title:'',voice:'all',ts:playerTs(),mode:'tab',extra:tlc.length?LIVE_EXTRA:0,W:liveW()}),state.notes);
-        LIVE.svgs=sd.svgs; LIVE.lay=sd.lay; LIVE.heads=sd.heads; LIVE.W=sd.W;
         const pr=[]; src.forEach(n=>{ pr.push([n.t0,(n.beat-1)*8],[n.t1,(n.beat-1+n.duration)*8]); });
         pr.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
         let mu=-1; const m=[]; pr.forEach(([t,u])=>{ u=Math.max(u,mu); mu=u; if(m.length&&m[m.length-1][0]===t) m[m.length-1][1]=u; else m.push([t,u]); });
-        LIVE.map=m; LIVE.ok=sd.svgs.length>0&&sd.lay.length>0;
-        if(LIVE.ok&&tlc.length) liveDrawChords(tlc,sd.W);
+        LIVE.map=m;
+        // só tablatura; se o hino tem acordes, o motor reserva espaço acima dela e desenha os diagramas
+        const chords=tlc.map(c=>({u:liveU(c.t),t:c.t,root:c.root,q:c.q,v:c.v}));
+        const sd=withPlayerSource(()=>pbBuildScore({title:'',voice:'all',ts:playerTs(),mode:'tab',chords,W:liveW()}),state.notes);
+        LIVE.svgs=sd.svgs; LIVE.lay=sd.lay; LIVE.heads=sd.heads; LIVE.W=sd.W; LIVE.chords=sd.chordFrames||[];
+        LIVE.ok=sd.svgs.length>0&&sd.lay.length>0;
         LIVE.svgs.forEach(svg=>{
             svg.removeAttribute('width'); svg.removeAttribute('height');
             svg.style.cssText='display:block;width:100%;height:auto;max-height:calc(36vh - 8px)';
@@ -4600,7 +4583,9 @@ function pbBuildScore(opts){
             else { cur={ms:[ms],w,first:false}; systems.push(cur); }
         }
     });
-    const TSP=9, TABH=5*TSP, EXTRA=(MODE==='tab'&&opts.extra)||0;   // EXTRA: espaço livre acima da tablatura (diagramas de acorde na partitura ao vivo)
+    const TSP=9, TABH=5*TSP;
+    // diagramas de acorde (opts.chords=[{u,t,root,q,v}], u em fusas): espaço reservado acima da tablatura (ou acima da pauta, em "só notação")
+    const CHL=(opts.chords||[]).slice().sort((a,b)=>a.u-b.u), CHX=CHL.length?(MODE==='tab'?46:MODE==='both'?62:76):0, EXTRA=MODE==='nota'?0:CHX, TOPX=MODE==='nota'?CHX:0;
     const gA=gAssignTimeline(notes.map(n=>({key:n,u:n.u,e:n.e,midi:n.midi,fix:(n.n.ts!=null&&n.n.tf!=null)?{s:n.n.ts,fret:n.n.tf}:undefined})),0);
     const atkList=staves[0].ev.filter(ev=>!ev.rest&&ev.notes.some(h=>!h.tieIn));
     systems.forEach(sys=>{
@@ -4608,7 +4593,7 @@ function pbBuildScore(opts){
         let minD=1e9; evs.forEach(ev=>{ if(!ev.rest) ev.notes.forEach(h=>{ minD=Math.min(minD,h.d); }); });
         const low=minD<1e9?Math.max(0,(staves[0].base-minD))*SP/2:0;
         sys.nExtra=Math.max(30,low+30,evs.some(ev=>ev.o8==='vb')?low+44:0);
-        sys.h = MODE==='nota' ? 44+4*SP+34+22 : MODE==='tab' ? 44+EXTRA+TABH+52 : 44+4*SP+sys.nExtra+TABH+34;
+        sys.h = MODE==='nota' ? 44+TOPX+4*SP+34+22 : MODE==='tab' ? 44+EXTRA+TABH+52 : 44+4*SP+sys.nExtra+EXTRA+TABH+34;
     });
     const svgs=[]; let page=null, y=0, pageNo=0;
     const newPage=()=>{
@@ -4642,7 +4627,7 @@ function pbBuildScore(opts){
     const stepY=(st,top,d)=>top+4*SP-(d-st.base)*SP/2;
     place.forEach(({sys,page:pgReal,y0},si)=>{
         const pg=MODE==='tab'?document.createElementNS(PB_NS,'g'):pgReal;
-        const tops=staves.map((_,k)=>y0+44+k*(8*SP));
+        const tops=staves.map((_,k)=>y0+44+TOPX+k*(8*SP));
         const left=MX, firstTs=sys.first;
         const xStart=left+clefW+ksW+(firstTs?tsW:0);
         const AW=AWfull-clefW-ksW-(firstTs?tsW:0);
@@ -4813,7 +4798,7 @@ function pbBuildScore(opts){
             });
         });
         if(MODE!=='nota'){
-            const ttop=MODE==='tab'?y0+44+EXTRA:tops[0]+4*SP+sys.nExtra, tb=ttop+TABH;
+            const ttop=MODE==='tab'?y0+44+EXTRA:tops[0]+4*SP+sys.nExtra+EXTRA, tb=ttop+TABH;
             const sY=si_=>ttop+(5-si_)*TSP, INKT='#111';
             for(let i=0;i<6;i++) pbEl(pgReal,'line',{x1:left,y1:ttop+i*TSP,x2:xEnd,y2:ttop+i*TSP,stroke:INKT,'stroke-width':1});
             pbEl(pgReal,'line',{x1:left,y1:ttop,x2:left,y2:tb,stroke:INKT,'stroke-width':1.6});
@@ -4848,7 +4833,22 @@ function pbBuildScore(opts){
             });
         }
     });
-    return {svgs,W,H,heads,lay,M};
+    const chordFrames=[];
+    if(CHL.length&&lay.length){
+        const per=lay.map(()=>[]);
+        CHL.forEach(c=>{ let si=lay.findIndex(L=>c.u<L.u1-1e-6); if(si<0) si=lay.length-1; per[si].push(c); });
+        per.forEach((arr,si)=>{
+            const L=lay[si], pl=place[si], svg=svgs[L.page]; let prev=-1e9;
+            const top=MODE==='both'?(pl.y0+44+4*SP+pl.sys.nExtra+EXTRA-86):pl.y0+4;
+            arr.forEach(c=>{
+                const cx=Math.max(liveX(L,c.u),MX+LIVE_DW/2+2,prev+LIVE_DW+2);
+                if(cx+LIVE_DW/2>W-8){ chordFrames.push({t:c.t,el:null}); return; }   // sem espaço: não desenha
+                prev=cx; chordFrames.push({t:c.t,el:liveDiagram(svg,cx,top,c.v||chVoicing(c.root,c.q),chName(c))});
+            });
+        });
+        chordFrames.sort((a,b)=>a.t-b.t);
+    }
+    return {svgs,W,H,heads,lay,M,chordFrames};
 }
 
 function pbAccidental(g,x,y,a,SP,ink){
@@ -5291,12 +5291,26 @@ function fillScVoice(){
     if(sel.selectedIndex<0&&sel.options.length) sel.selectedIndex=0;
     sel.parentElement.style.display=used.length>1?'':'none';
 }
+// acordes para os diagramas do PDF: os da versão escolhida (mesmos que a mão mostra no violão) ou os da composição
+function scoreChordList(){
+    try{
+        if(!scFromPlayer) return scoreChords.map(c=>({u:Math.max(0,(c.beat-1)*8),t:0,root:c.root,q:c.q}));
+        const src=state.src; if(!src||!src.an) return [];
+        const T=state.t||0, v=$('scVoice').value||'cur', mode=(v==='cur')?state.mode:((v==='violao'||v==='all')?v:parseInt(v));
+        let tl=[];
+        if(String(mode)===String(state.mode)) tl=window.vgChordTL||[];
+        else if(mode==='violao') tl=((state.style==='acomp')?vgPlanAcomp(src,T):vgPlan(src,T)).tl;
+        if(!tl.length) tl=src.an.prog.map(c=>({t:c.s,root:(((c.root+T)%12)+12)%12,q:c.q}));
+        const pk=state.srcPickup||0;
+        return tl.map(c=>({u:Math.max(0,Math.round((srcQ(c.t)+pk)*4)*2),t:c.t,root:c.root,q:c.q,v:c.v}));
+    }catch(e){ console.error(e); return []; }
+}
 function renderScoreModal(){
     const body=$('scBody'); body.innerHTML=''; scoreData=null; $('scPdf').disabled=true;
     const msg=t=>{ const d=document.createElement('div'); d.className='pb-msg'; d.textContent=t; body.append(d); };
     if(!(scFromPlayer?(state.midiLoaded&&state.notes.length):scoreNotes.length)){ msg(scFromPlayer?'Abra um hino para ver a partitura.':'Escreva algumas notas na composição e volte aqui para ver a partitura.'); return; }
     try{
-        scoreData=withScoreSource(()=>pbBuildScore({title:$('scTitle').value,mode:$('scMode').value,voice:'all',ts:scFromPlayer?playerTs():undefined}));
+        scoreData=withScoreSource(()=>pbBuildScore({title:$('scTitle').value,mode:$('scMode').value,voice:'all',ts:scFromPlayer?playerTs():undefined,chords:scoreChordList()}));
         scoreData.svgs.forEach(svg=>{ const p=document.createElement('div'); p.className='pb-paper'; svg.removeAttribute('width'); svg.removeAttribute('height'); p.append(svg); body.append(p); });
         $('scPdf').disabled=false; $('scPdf').textContent=PRO.ok?'⬇ Baixar PDF':'🔒 Baixar PDF (Pro)';
     }catch(e){ console.error(e); msg('Não foi possível montar a partitura desta composição.'); }
