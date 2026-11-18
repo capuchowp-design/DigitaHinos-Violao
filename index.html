@@ -1202,7 +1202,14 @@ function parseMusicXML(text){
                 else if(t==='forward'){ cur+=nm(e,'duration',0); ext=Math.max(ext,cur); }
                 else if(t==='barline'){
                     const rp=c1(e,'repeat'); if(rp){ if(rp.getAttribute('direction')==='forward') info.fwd=true; else info.bwd=true; }
-                    const en=c1(e,'ending'); if(en){ if(en.getAttribute('type')==='start') info.endStart=(en.getAttribute('number')||'1').split(/[ ,]+/).map(s=>parseInt(s)).filter(x=>x>0); else info.endStop=true; }
+                    const en=c1(e,'ending'); if(en){
+                        if(en.getAttribute('type')==='start'){
+                            // o texto do colchete ("1.2.", "3.") é mais confiável que o atributo number (vem errado em vários hinos)
+                            let nums=((en.textContent||'').match(/\d+/g)||[]).map(Number).filter(x=>x>0);
+                            if(!nums.length) nums=(en.getAttribute('number')||'1').split(/[ ,]+/).map(x=>parseInt(x)).filter(x=>x>0);
+                            info.endStart=nums;
+                        } else info.endStop=true;
+                    }
                 } else if(t==='note'){
                     if(c1(e,'grace')) continue;
                     const isChord=!!c1(e,'chord'), dur=nm(e,'duration',0), on=isChord?lastOn:cur;
@@ -1223,7 +1230,9 @@ function parseMusicXML(text){
     });
     const n=MI.length; if(!n) throw new Error('Nenhum compasso encontrado');
     const len=MI.map(m=>m.ext>1e-6?m.ext:m.nom);
-    let open=null; MI.forEach(m=>{ if(m.endStart) open=m.endStart; m.volta=open; if(m.endStop) open=null; });
+    MI.forEach((m,k)=>{ if(m.endStart){ let j=k, has=!!m.endStop; while(!has&&++j<n&&!MI[j].endStart){ if(MI[j].endStop) has=true; } m.endAuto=!has; } });   // casa sem fechamento: vale só o próprio compasso
+    let open=null; MI.forEach(m=>{ if(m.endStart) open=m.endStart; m.volta=open; if(m.endStop||m.endAuto) open=null; });
+    MI.forEach((m,k)=>{ const nx=MI[k+1]; if(m.bwd&&!m.volta&&nx&&nx.volta&&Math.min(...nx.volta)>=2) m.volta=[1]; });   // compasso antes da casa 2 sem colchete = casa 1
     // ordem de execução (repetições e casas 1ª/2ª)
     const order=[]; { let i=0,secStart=0,pass=1,jumped=false,guard=0; const taken=new Set();
         while(i<n&&guard++<n*12){
@@ -1232,7 +1241,11 @@ function parseMusicXML(text){
             jumped=false;
             if(m.volta&&!m.volta.includes(pass)){ i++; continue; }
             order.push(i);
-            if(m.bwd){ if(!taken.has(i)){ taken.add(i); i=secStart; pass++; jumped=true; continue; } secStart=i+1; pass=1; }
+            if(m.bwd){
+                if(m.volta&&m.volta.length>1&&m.volta.includes(1)){ secStart=i+1; pass=1; }   // "1.2.": versos repetidos, toca uma vez e segue (a casa 3 é pulada)
+                else if(!taken.has(i)){ taken.add(i); i=secStart; pass++; jumped=true; continue; }
+                else { secStart=i+1; pass=1; }
+            }
             i++;
         } }
     if(!order.length) for(let i=0;i<n;i++) order.push(i);
