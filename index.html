@@ -2813,6 +2813,22 @@ function gBodyPath(CX){
     }
     p.closePath(); return p;
 }
+// corpo do violão folk (cordas de aço): caixa larga, cintura marcada e recorte (cutaway) no lado das cordas agudas
+function gBodyPathFolk(CX){
+    // lado das agudas (+x): o contorno acompanha o braço e abre num recorte até a cintura
+    const p=new Path2D(); p.moveTo(CX+66,500);
+    p.bezierCurveTo(CX+66,560,CX+80,640,CX+112,672);
+    p.bezierCurveTo(CX+130,690,CX+144,702,CX+148,724);
+    p.bezierCurveTo(CX+150,752,CX+192,758,CX+192,832);
+    p.bezierCurveTo(CX+192,902,CX+124,942,CX,942);
+    // lado das graves (-x): ombro completo
+    const segs=[[[112,515],[148,552],[146,602]],[[144,648],[114,668],[115,704]],[[117,742],[192,752],[192,832]],[[192,902],[124,942],[0,942]]];
+    for(let i=segs.length-1;i>=0;i--){
+        const prev=i>0?segs[i-1][2]:[66,500];
+        p.bezierCurveTo(CX-segs[i][1][0],segs[i][1][1],CX-segs[i][0][0],segs[i][0][1],CX-prev[0],prev[1]);
+    }
+    p.closePath(); return p;
+}
 function vgSwitchSampler(){
     try{ if(state.piano) state.piano.dispose(); }catch(e){}
     state.piano=null; state.samplerReady=!!state.synth; state.sampler=state.synth||null; samplerPromise=null;
@@ -2897,6 +2913,12 @@ function drawPiano(){
     const sc=(X,Y)=>[tx-Y*s,ty+X*s];
     if(top){ const [gx0,gy0]=sc(CX,620), g=c.createRadialGradient(gx0,gy0,0,gx0,gy0,Math.max(L.gw,L.gh)*0.55); g.addColorStop(0,ac+'44'); g.addColorStop(1,'transparent'); c.fillStyle=g; c.fillRect(0,0,w,h); }
     vgDrawInfo(c,L,gn,chord,top,ac,light,ink);
+    // violão de aço: halo azul-violeta atrás do violão preto
+    if(steel){
+        const [hx0,hy0]=sc(CX,690), hg0=c.createRadialGradient(hx0,hy0,0,hx0,hy0,Math.max(L.gw*.62,L.gh*.9));
+        hg0.addColorStop(0,light?'rgba(98,84,214,.22)':'rgba(104,90,230,.5)'); hg0.addColorStop(.55,light?'rgba(98,84,214,.08)':'rgba(84,70,200,.18)'); hg0.addColorStop(1,'rgba(84,70,200,0)');
+        c.fillStyle=hg0; c.fillRect(0,0,w,h);
+    }
 
     c.save(); c.beginPath(); c.rect(L.gx,L.gy,L.gw,h-L.gy); c.clip();
     c.translate(tx,ty); c.scale(s,s); c.rotate(Math.PI/2);
@@ -2905,18 +2927,46 @@ function drawPiano(){
     const TX=(str,x,y,px,col,align,base)=>{ c.save(); c.translate(x,y); c.rotate(-Math.PI/2); c.font='700 '+(px/s)+'px Inter,sans-serif'; c.fillStyle=col; c.textAlign=align||'center'; c.textBaseline=base||'middle'; c.fillText(str,0,0); c.restore(); };
     const edge=light?'#4a2a12':'#120904', eb=light?'#3a2418':'#1d110a', hs=light?'#5a3820':'#2a160b';
     const t0=light?'#c89a52':'#9a6428', t1=light?'#ecc884':'#e0b46a', t2=light?'#b08040':'#8a5420';
+    // paleta do violão folk preto com detalhes bege
+    const BN='#ecd9ab', BN2='#cdbb8e', BK='#08080c';
     // --- cabeça (headstock) e tarraxas ---
-    c.fillStyle=hs; c.strokeStyle=edge; c.lineWidth=3;
+    c.fillStyle=steel?BK:hs; c.strokeStyle=steel?BN:edge; c.lineWidth=steel?4.5:3;
     c.beginPath(); c.moveTo(CX-56,166); c.lineTo(CX-62,70); c.quadraticCurveTo(CX-64,26,CX-34,22); c.lineTo(CX+34,22); c.quadraticCurveTo(CX+64,26,CX+62,70); c.lineTo(CX+56,166); c.closePath(); c.fill(); c.stroke();
     if(!steel){ c.fillStyle='#070302'; [-30,16].forEach(x=>{ c.beginPath(); c.roundRect(CX+x,48,14,86,6); c.fill(); }); }
-    else { c.strokeStyle='rgba(255,255,255,.12)'; c.lineWidth=2; c.beginPath(); c.moveTo(CX,34); c.lineTo(CX,150); c.stroke(); }
     [62,92,122].forEach(y=>[-1,1].forEach(sd=>{
-        c.fillStyle=steel?'#bfc4c9':'#cdbf9d'; c.strokeStyle=edge; c.lineWidth=2;
+        c.fillStyle=steel?BN2:'#cdbf9d'; c.strokeStyle=steel?'rgba(0,0,0,.6)':edge; c.lineWidth=2;
         c.fillRect(sd>0?CX+60:CX-76,y-3,16,6); c.strokeRect(sd>0?CX+60:CX-76,y-3,16,6);
-        c.fillStyle=steel?'#e6e9ec':'#f1ead6'; c.beginPath(); c.ellipse(CX+sd*88,y,9,13,0,0,Math.PI*2); c.fill(); c.stroke();
-        if(steel){ c.fillStyle='#9aa0a6'; c.beginPath(); c.arc(CX+sd*22,y,5,0,Math.PI*2); c.fill(); c.stroke(); }
+        c.fillStyle=steel?BN:'#f1ead6'; c.beginPath(); c.ellipse(CX+sd*88,y,9,13,0,0,Math.PI*2); c.fill(); c.stroke();
     }));
     // --- tampo, boca, rosácea ---
+    const [hx,hy,hr]=[GL.HX,GL.HY,GL.HR];
+    if(steel){
+        // --- violão folk preto com filetes bege ---
+        const body=gBodyPathFolk(CX), bg=c.createLinearGradient(CX-180,0,CX+180,0);
+        bg.addColorStop(0,'#0a0a0f'); bg.addColorStop(.5,'#1c1c27'); bg.addColorStop(1,'#07070b');
+        c.save(); c.shadowColor=light?'rgba(98,84,214,.35)':'rgba(124,108,255,.75)'; c.shadowBlur=38; c.fillStyle=bg; c.fill(body); c.restore();
+        c.fillStyle=bg; c.fill(body);
+        const hl=c.createRadialGradient(CX-40,790,5,CX-40,790,230); hl.addColorStop(0,'rgba(150,150,210,.16)'); hl.addColorStop(1,'rgba(150,150,210,0)');
+        c.fillStyle=hl; c.fill(body);
+        c.strokeStyle=BN; c.lineWidth=9; c.stroke(body);                       // filete bege externo
+        c.save(); c.translate(CX,720); c.scale(.958,.966); c.translate(-CX,-720);
+        c.strokeStyle='rgba(0,0,0,.9)'; c.lineWidth=3; c.stroke(body);           // vão escuro
+        c.restore();
+        c.save(); c.translate(CX,720); c.scale(.948,.958); c.translate(-CX,-720);
+        c.strokeStyle='rgba(150,148,160,.75)'; c.lineWidth=1.5; c.stroke(body); c.restore();   // fio cinza interno
+        // escudo (pickguard) em espiral, só o contorno bege
+        c.strokeStyle=BN; c.lineWidth=2.6; c.lineCap='round'; c.beginPath();
+        c.moveTo(CX-44,808); c.bezierCurveTo(CX-66,782,CX-124,780,CX-132,818);
+        c.bezierCurveTo(CX-138,848,CX-100,858,CX-94,832); c.bezierCurveTo(CX-90,812,CX-112,808,CX-116,824); c.stroke();
+        // boca: miolo preto, aro bege grosso e anel tracejado
+        c.strokeStyle=BN; c.lineWidth=8; c.beginPath(); c.arc(hx,hy,hr+9,0,Math.PI*2); c.stroke();
+        c.strokeStyle='rgba(236,217,171,.8)'; c.lineWidth=2; c.setLineDash([6,5]); c.beginPath(); c.arc(hx,hy,hr+32,0,Math.PI*2); c.stroke(); c.setLineDash([]);
+        const hg=c.createRadialGradient(hx,hy,4,hx,hy,hr); hg.addColorStop(0,'#000'); hg.addColorStop(1,'#0b0b10');
+        c.fillStyle=hg; c.beginPath(); c.arc(hx,hy,hr,0,Math.PI*2); c.fill();
+        // ponte: retângulo preto com contorno bege
+        c.fillStyle=BK; c.strokeStyle=BN; c.lineWidth=3; c.beginPath(); c.roundRect(CX-92,852,184,34,8); c.fill(); c.stroke();
+        c.fillStyle='rgba(236,217,171,.6)'; c.fillRect(CX-74,858,148,3.5);
+    } else {
     const body=gBodyPath(CX), bg=c.createLinearGradient(CX-180,0,CX+180,0);
     bg.addColorStop(0,t0); bg.addColorStop(.5,t1); bg.addColorStop(1,t2);
     c.fillStyle=bg; c.fill(body);
@@ -2925,10 +2975,6 @@ function drawPiano(){
     c.strokeStyle=edge; c.lineWidth=10; c.stroke(body);
     c.strokeStyle=light?'#f6ecd2':'#ead9b0'; c.lineWidth=5.5; c.stroke(body);
     c.save(); c.translate(CX,720); c.scale(.955,.965); c.translate(-CX,-720); c.strokeStyle='rgba(30,14,4,.45)'; c.lineWidth=1.6; c.stroke(body); c.restore();
-    if(steel){
-        c.fillStyle='rgba(18,10,6,.82)'; c.beginPath(); c.moveTo(CX+52,736); c.bezierCurveTo(CX+98,718,CX+152,742,CX+142,792); c.bezierCurveTo(CX+130,834,CX+82,818,CX+62,782); c.closePath(); c.fill();
-    }
-    const [hx,hy,hr]=[GL.HX,GL.HY,GL.HR];
     [[hr+19,'#2a1608',3.5],[hr+13,'#f1e4c0',5],[hr+7,'#2a1608',3.5]].forEach(([r,col,lw])=>{ c.strokeStyle=col; c.lineWidth=lw; c.beginPath(); c.arc(hx,hy,r,0,Math.PI*2); c.stroke(); });
     c.strokeStyle='#a0522d'; c.lineWidth=4; c.setLineDash([4,3]); c.beginPath(); c.arc(hx,hy,hr+16,0,Math.PI*2); c.stroke(); c.setLineDash([]);
     const hg=c.createRadialGradient(hx,hy,4,hx,hy,hr); hg.addColorStop(0,'#030201'); hg.addColorStop(1,'#1a0d06');
@@ -2936,21 +2982,23 @@ function drawPiano(){
     // ponte e cavalete
     c.fillStyle=eb; c.strokeStyle=edge; c.lineWidth=2.5; c.beginPath(); c.roundRect(CX-92,852,184,34,8); c.fill(); c.stroke();
     c.fillStyle='#f1ead6'; c.fillRect(CX-74,857,148,5);
+    }
     // --- braço: escala, trastes, pestana ---
-    const fbg=c.createLinearGradient(CX-72,0,CX+72,0); fbg.addColorStop(0,eb); fbg.addColorStop(.5,light?'#563a2a':'#2e1d13'); fbg.addColorStop(1,eb);
-    c.fillStyle=fbg; c.strokeStyle='#050302'; c.lineWidth=3;
+    const fbg=c.createLinearGradient(CX-72,0,CX+72,0);
+    if(steel){ fbg.addColorStop(0,'#050508'); fbg.addColorStop(.5,'#14141c'); fbg.addColorStop(1,'#050508'); } else { fbg.addColorStop(0,eb); fbg.addColorStop(.5,light?'#563a2a':'#2e1d13'); fbg.addColorStop(1,eb); }
+    c.fillStyle=fbg; c.strokeStyle=steel?BN:'#050302'; c.lineWidth=steel?4:3;
     c.beginPath(); c.moveTo(CX-58,NUT); c.lineTo(CX+58,NUT); c.lineTo(CX+70,FB); c.quadraticCurveTo(CX,FB+10,CX-70,FB); c.closePath(); c.fill(); c.stroke();
-    c.fillStyle='rgba(255,255,255,.26)';
+    c.fillStyle=steel?'rgba(236,217,171,.34)':'rgba(255,255,255,.26)';
     [3,5,7,9,15,17,19].forEach(n=>{ const y=(gFretY(n-1)+gFretY(n))/2; c.beginPath(); c.arc(CX,y,4,0,Math.PI*2); c.fill(); });
     { const y=(gFretY(11)+gFretY(12))/2; [-20,20].forEach(dx=>{ c.beginPath(); c.arc(CX+dx,y,4,0,Math.PI*2); c.fill(); }); }
-    c.strokeStyle='#cfd2d6'; c.lineWidth=2.2;
+    c.strokeStyle=steel?BN2:'#cfd2d6'; c.lineWidth=steel?1.8:2.2;
     for(let n=1;n<=19;n++){ const y=gFretY(n), hw=gFbHalf(y); c.beginPath(); c.moveTo(CX-hw,y); c.lineTo(CX+hw,y); c.stroke(); }
-    c.fillStyle='#efe6d0'; c.strokeStyle='#050302'; c.lineWidth=1.6; c.beginPath(); c.roundRect(CX-60,NUT-8,120,9,2); c.fill(); c.stroke();
+    c.fillStyle=steel?BN:'#efe6d0'; c.strokeStyle=steel?'rgba(0,0,0,.7)':'#050302'; c.lineWidth=1.6; c.beginPath(); c.roundRect(CX-60,NUT-8,120,9,2); c.fill(); c.stroke();
     // número das casas, acima do braço
     [3,5,7,9,12,15,17,19].forEach(n=>{ const y=(gFretY(n-1)+gFretY(n))/2; TX(String(n),CX-gFbHalf(y)-6,y,Math.max(8,Math.min(11,5.5*s*2.2)),'rgba(255,255,255,.5)','center','bottom'); });
     // --- cordas ---
-    const bassC=steel?'#c9a35b':'#cfd2d6', trebC=steel?'#d8dde0':'rgba(236,242,230,.9)';
-    const SC=[bassC,bassC,bassC,steel?'#d8dde0':trebC,trebC,trebC], SW=steel?[3.8,3.2,2.7,2.1,1.6,1.2]:[3.5,3,2.5,2.1,1.8,1.5];
+    const bassC=steel?'#e2d6b4':'#cfd2d6', trebC=steel?'#f3f4f6':'rgba(236,242,230,.9)';
+    const SC=[bassC,bassC,bassC,steel?'#eceef0':trebC,trebC,trebC], SW=steel?[3.8,3.2,2.7,2.1,1.6,1.2]:[3.5,3,2.5,2.1,1.8,1.5];
     const post=[[-1,122],[-1,92],[-1,62],[1,62],[1,92],[1,122]];
     for(let i=0;i<6;i++){
         const on=!!gOn[i], x0=gStrX(i,NUT), xb=gStrX(i,BR);
