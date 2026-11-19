@@ -45,3 +45,8 @@ No Acompanhamento o violão toca só as cifras e o **soprano toca ao fundo** (fl
   - *Simples*: um movimento por tempo. Ex.: 6/8 = batida ↓↓↑↓↓↑ e dedilhado P I M A M I; 4/4 = P I M A; 3/4 = P IMA IMA.
   - *Subdividida*: "1 e 2 e 3 e…", o dobro de movimentos. Ex.: 6/8 = P I M A M I P I M A M I.
   - *Mista*: primeira metade do compasso simples e segunda metade subdividida. Ex.: 4/4 = ↓ ↓ ↑↓↑↓ ↓↑↓↑.
+
+## v26: partitura ao vivo em 16:9, fundo sépia
+- A área da partitura/tablatura na tela do violão agora é um quadro **16:9** (proporção do YouTube) com fundo **sépia**.
+- Mostra a linha de tablatura que está tocando (com os diagramas de acorde) e, **embaixo, a próxima linha**. Quando a música passa para a linha seguinte, as duas **sobem suavemente** e entra uma nova linha embaixo. Na última linha só aparece a atual.
+- O PDF/partitura exportada continua em fundo branco (a mudança é só na tela).
