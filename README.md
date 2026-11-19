@@ -50,3 +50,9 @@ No Acompanhamento o violão toca só as cifras e o **soprano toca ao fundo** (fl
 - A área da partitura/tablatura na tela do violão agora é um quadro **16:9** (proporção do YouTube) com fundo **sépia**.
 - Mostra a linha de tablatura que está tocando (com os diagramas de acorde) e, **embaixo, a próxima linha**. Quando a música passa para a linha seguinte, as duas **sobem suavemente** e entra uma nova linha embaixo. Na última linha só aparece a atual.
 - O PDF/partitura exportada continua em fundo branco (a mudança é só na tela).
+
+## v27: letra de todos os versos sob a tablatura
+- A letra vem do próprio arquivo MXL do hino (todos os versos, 2 a 4). Cada sílaba fica embaixo da nota da melodia correspondente, com hífen entre as sílabas e o número do verso à esquerda.
+- A distância entre as notas da tablatura aumenta onde a sílaba é larga, para as letras não se sobreporem.
+- A sílaba que está soando fica em laranja e negrito, junto com o cursor.
+- Com letra, a tela mostra uma linha maior de cada vez (para ficar legível); sem letra e com espaço, continua mostrando a próxima linha embaixo.

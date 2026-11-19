@@ -1219,7 +1219,12 @@ function parseMusicXML(text){
                         const midi=STEP[tx(pitch,'step')]+Math.round(nm(pitch,'alter',0))+(parseInt(tx(pitch,'octave'))+1)*12+trans;
                         let ties=ch(e,'tie').map(x=>x.getAttribute('type'));
                         if(!ties.length){ const nt=c1(e,'notations'); if(nt) ties=ch(nt,'tied').map(x=>x.getAttribute('type')); }
-                        evs.push({part:pi,staff:parseInt(tx(e,'staff'))||1,voice:parseInt(tx(e,'voice'))||1,midi,mi,on:on/div,dur:dur/div,tS:ties.includes('start'),tE:ties.includes('stop'),vel,stem:tx(e,'stem')});
+                        const lyr={}; ch(e,'lyric').forEach(ly=>{   // letra: uma sílaba por verso (number)
+                            const num=parseInt(String(ly.getAttribute('number')||'').replace(/\D/g,''))||1; let txt='', sy='';
+                            for(const c of ly.children){ if(c.nodeName==='text') txt+=c.textContent; else if(c.nodeName==='syllabic'&&!sy) sy=c.textContent.trim(); }
+                            txt=txt.trim().replace(/^\d+\s*[.)]\s*/,''); if(txt&&!lyr[num]) lyr[num]={t:txt,sy};   // tira o "1." do começo do verso (o número é desenhado à parte)
+                        });
+                        evs.push({part:pi,staff:parseInt(tx(e,'staff'))||1,voice:parseInt(tx(e,'voice'))||1,midi,mi,on:on/div,dur:dur/div,tS:ties.includes('start'),tE:ties.includes('stop'),vel,stem:tx(e,'stem'),lyr:Object.keys(lyr).length?lyr:null});
                     }
                     if(!isChord) cur+=dur;
                     ext=Math.max(ext,cur);
@@ -1266,6 +1271,9 @@ function parseMusicXML(text){
     const measures=occ.map(o=>({mi:o.mi,s:toSec(o.q),e:toSec(o.q+len[o.mi]),q:len[o.mi],beats:MI[o.mi].beats||4,bt:MI[o.mi].bt||4}));
     // ligaduras de prolongamento
     abs.sort((a,b)=>a.s-b.s);
+    const lyrMap=new Map();   // letra por instante (segundos): {t, syl:{verso:{t,sy}}}
+    abs.forEach(x=>{ if(!x.lyr) return; const t=toSec(x.s), k=t.toFixed(3); let it=lyrMap.get(k); if(!it){ it={t,syl:{}}; lyrMap.set(k,it); } for(const v in x.lyr) if(!it.syl[v]) it.syl[v]=x.lyr[v]; });
+    const lyrics=[...lyrMap.values()].sort((a,b)=>a.t-b.t);
     const pend=new Map(), merged=[];
     abs.forEach(x=>{
         const k=x.part+'|'+x.staff+'|'+x.voice+'|'+x.midi, p=pend.get(k);
@@ -1338,7 +1346,7 @@ function parseMusicXML(text){
     if(!notes.length) throw new Error('Nenhuma nota encontrada');
     const first=f=>{ const m=MI.find(x=>x[f]!==undefined); return m?m[f]:null; };
     const _m0=measures[0], _nom=_m0?_m0.beats*4/_m0.bt:0, pickup=(_m0&&_nom&&_m0.q>1e-6&&_m0.q<_nom-0.01)?_nom-_m0.q:0;   // compasso de anacruse (incompleto)
-    return {notes,duration:Math.max(...notes.map(x=>x.endTime)),bpm:tm[0].bpm,key:first('fifths'),timeSig:first('time'),voiceNames,measures,tm,pickup};
+    return {notes,duration:Math.max(...notes.map(x=>x.endTime)),bpm:tm[0].bpm,key:first('fifths'),timeSig:first('time'),voiceNames,measures,tm,pickup,lyrics:lyrics.length?lyrics:null};
 }
 function isMidiBuf(buf){ const u=new Uint8Array(buf,0,Math.min(4,buf.byteLength)); return u[0]===0x4D&&u[1]===0x54&&u[2]===0x68&&u[3]===0x64; }
 async function parseAnyScore(buf){ return isMidiBuf(buf)?parseMidiFile(buf):parseMusicXML(await readScoreXmlText(buf)); }
@@ -1855,7 +1863,7 @@ function vgOpenStrings(notes){
 }
 
 function vgMakeSrc(parsed){
-    const src={notes:parsed.notes,duration:parsed.duration,measures:parsed.measures||null,voiceNames:parsed.voiceNames||null};
+    const src={notes:parsed.notes,duration:parsed.duration,measures:parsed.measures||null,voiceNames:parsed.voiceNames||null,lyrics:parsed.lyrics||null};
     if(vgIsSatb(src)){ const an=vgAnalyze(src); if(an){ src.an=an; src.anB=an; src.tonic=an.tonic; src.minor=an.minor; } }
     return src;
 }
@@ -4337,6 +4345,7 @@ function gtVersionNotes(v){
 }
 const LIVE={sig:'',notesRef:null,svgs:[],lay:[],heads:[],map:[],act:[],host:null,paper:null,cur:null,shown:null,sys:-1,ok:false};
 const LIVE_COL='#e8590c';
+const LIVE_LH=15, LIVE_LYR='#3b2a14';
 const LIVE_PAPER='#f1e3c3', LIVE_FRAME='#f8eed6', LIVE_FRAME_ON='#fde6bd', LIVE_LINE='#c9b48a';
 function liveHost(){
     if(LIVE.host) return LIVE.host;
@@ -4353,19 +4362,19 @@ function liveHost(){
     vig.style.cssText='position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(255,244,214,0) 55%,rgba(120,80,30,.28) 100%)';
     const sep=document.createElement('div');   // fio fino entre a linha atual e a próxima
     sep.style.cssText='position:absolute;left:6%;right:6%;top:50%;height:1px;background:rgba(120,85,40,.28);pointer-events:none';
-    paper.append(stage,sep,vig); h.append(paper); canvasContainer.append(h); LIVE.host=h; LIVE.paper=paper; LIVE.stage=stage; LIVE.rows=rows;
+    paper.append(stage,sep,vig); h.append(paper); canvasContainer.append(h); LIVE.host=h; LIVE.paper=paper; LIVE.stage=stage; LIVE.rows=rows; LIVE.sep=sep;
     try{   // quando a altura da partitura muda, o violão é redimensionado (evita animação cortada/esticada)
         let raf=0, lastH=-1;
         const ro=new ResizeObserver(()=>{ const hh=Math.round(canvasContainer.getBoundingClientRect().height); if(hh===lastH) return; lastH=hh;
             cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{ resizeCanvases(); if(state.midiLoaded) drawScene(); }); });
         ro.observe(canvasContainer); ro.observe(pianoCanvas.parentElement); ro.observe(paper);
-        new ResizeObserver(()=>liveFit()).observe(paper);
+        new ResizeObserver(()=>{ if(LIVE.ok&&LIVE.sys>=0&&LIVE.lay[LIVE.sys]) liveShowRows(LIVE.sys,-1); else liveFit(); }).observe(paper);
     }catch(e){}
     return h;
 }
 const LIVE_DW=56;
 // largura lógica da partitura ao vivo: acompanha a tela (em telas estreitas as letras ficam maiores)
-function liveW(){ const w=canvasContainer.getBoundingClientRect().width||840; return Math.max(560,Math.min(840,Math.round(w/20)*20)); }
+function liveW(){ const cw=canvasContainer.getBoundingClientRect().width||840, pw=Math.min(cw-16,innerHeight*.38*16/9,980); return Math.max(560,Math.min(840,Math.round(pw/20)*20)); }
 // posição horizontal (x) de um ponto da música (u, em fusas) dentro de uma linha da tablatura
 function liveX(L,u){
     const cols=L.cols;
@@ -4417,9 +4426,11 @@ function liveBuild(){
         LIVE.map=m;
         // só tablatura; se o hino tem acordes, o motor reserva espaço acima dela e desenha os diagramas
         const chords=tlc.map(c=>({u:liveU(c.t),t:c.t,root:c.root,q:c.q,v:c.v}));
-        const sd=withPlayerSource(()=>pbBuildScore({title:'',voice:'all',ts:playerTs(),mode:'tab',chords,W:liveW()}),state.notes);
+        const ld=liveLyricData(); LIVE.ly=ld; LIVE.lyrItems=null; LIVE.li=-1;
+        const sd=withPlayerSource(()=>pbBuildScore({title:'',voice:'all',ts:playerTs(),mode:'tab',chords,W:liveW(),lyrN:ld?ld.vs.length:0,lyrW:ld?(au=>ld.wmap.get(Math.round(au))||0):null}),state.notes);
         LIVE.svgs=sd.svgs; LIVE.lay=sd.lay; LIVE.heads=sd.heads; LIVE.W=sd.W; LIVE.chords=sd.chordFrames||[];
         LIVE.ok=sd.svgs.length>0&&sd.lay.length>0;
+        if(LIVE.ok&&ld) liveDrawLyrics(sd,ld);
         LIVE.pris=[];
         LIVE.svgs.forEach(svg=>{
             svg.removeAttribute('width'); svg.removeAttribute('height');
@@ -4429,6 +4440,41 @@ function liveBuild(){
             const ln=document.createElementNS(PB_NS,'line'); ln.setAttribute('stroke',LIVE_COL); ln.setAttribute('stroke-width','2.4'); ln.setAttribute('opacity','.75'); ln.setAttribute('stroke-linecap','round'); ln.style.display='none'; svg.append(ln); svg._cur=ln;
         });
     }catch(e){ console.error(e); LIVE.ok=false; }
+}
+// ---- letra (todos os versos) sob a tablatura, cada sílaba sob a sua nota ----
+function liveLyricData(){
+    const ly=state.src&&state.src.lyrics; if(!ly||!ly.length) return null;
+    const vs=[...new Set(ly.flatMap(x=>Object.keys(x.syl).map(Number)))].sort((a,b)=>a-b).slice(0,8);
+    if(!vs.length) return null;
+    const cx=document.createElement('canvas').getContext('2d'); cx.font='12.5px Arial,Helvetica,sans-serif';
+    const wof=t=>cx.measureText(t).width, wmap=new Map();
+    const items=ly.map(x=>{
+        const u=liveU(x.t); let w=0;
+        vs.forEach(v=>{ const y=x.syl[v]; if(y) w=Math.max(w,wof(y.t)+((y.sy==='begin'||y.sy==='middle')?5:0)+3); });
+        const k=Math.round(u); wmap.set(k,Math.max(wmap.get(k)||0,w));
+        return {t:x.t,u,syl:x.syl,els:[]};
+    });
+    return {vs,items,wmap,wof};
+}
+function liveDrawLyrics(sd,ld){
+    const LH=LIVE_LH, F={'font-family':'Arial,Helvetica,sans-serif','font-size':12.5,fill:LIVE_LYR};
+    LIVE.lyrItems=[];
+    sd.lay.forEach(L=>{
+        const svg=sd.svgs[L.page], tb=L.tt+45, y1=tb+50;
+        ld.vs.forEach((v,r)=>pbEl(svg,'text',{x:50,y:y1+r*LH,'text-anchor':'end','font-family':'Arial,Helvetica,sans-serif','font-size':11,'font-weight':'bold',fill:'#7a5a2e'},v+'.'));
+        ld.items.forEach(it=>{
+            if(it.u<L.u0-1e-6||it.u>=L.u1-1e-6) return;
+            const x=liveX(L,it.u);
+            ld.vs.forEach((v,r)=>{
+                const y=it.syl[v]; if(!y) return;
+                const hy=(y.sy==='begin'||y.sy==='middle');
+                const el=pbEl(svg,'text',Object.assign({x:x-ld.wof(y.t)/2,y:y1+r*LH,'text-anchor':'start'},F),y.t+(hy?'-':''));
+                it.els.push(el);
+            });
+            if(it.els.length) LIVE.lyrItems.push(it);
+        });
+    });
+    LIVE.lyrItems.sort((a,b)=>a.u-b.u);
 }
 // troca o branco da partitura pelo sépia (só na tela; o PDF continua igual)
 function liveSepia(svg){
@@ -4458,8 +4504,12 @@ function liveShowRows(si,prevSi){
     const R=LIVE.rows, st=LIVE.stage, L=LIVE.lay[si], svg=LIVE.svgs[L.page];
     const top=L.y0-12, bot=L.y0+L.h-6; svg.setAttribute('viewBox','0 '+top+' '+LIVE.W+' '+(bot-top));   // só a linha que está tocando
     const anim=prevSi>=0&&si===prevSi+1&&!matchMedia('(prefers-reduced-motion:reduce)').matches;
+    // 2 linhas (atual + próxima) só se couberem com tamanho legível; senão uma linha maior
+    const pw=LIVE.paper.clientWidth||300, ph=LIVE.paper.clientHeight||170, sysH=bot-top+4;
+    const two=Math.min((pw-20)/LIVE.W,(ph/2-4)/sysH)>=(LIVE.ly?0.75:0.5);
+    st.style.height=two?'150%':'300%'; LIVE.sep.style.display=two?'':'none';
     R.forEach(r=>{ r.textContent=''; });
-    const prev=anim?liveClone(prevSi):null, next=liveClone(si+1);
+    const prev=anim?liveClone(prevSi):null, next=two?liveClone(si+1):null;
     if(prev) R[0].append(prev);
     R[1].append(svg);
     if(next) R[2].append(next);
@@ -4501,6 +4551,15 @@ function liveScoreUpdate(){
             if(o&&o.el){ o.el.setAttribute('stroke',LIVE_LINE); o.el.setAttribute('stroke-width','1'); o.el.setAttribute('fill',LIVE_FRAME); }
             if(n&&n.el){ n.el.setAttribute('stroke',LIVE_COL); n.el.setAttribute('stroke-width','2'); n.el.setAttribute('fill',LIVE_FRAME_ON); }
             LIVE.ci=ci;
+        }
+    }
+    if(LIVE.lyrItems&&LIVE.lyrItems.length){   // sílaba que está soando agora
+        const li=LIVE.lyrItems; let ci=-1; for(let i=0;i<li.length;i++){ if(li[i].u<=u+1e-6) ci=i; else break; }
+        if(ci!==LIVE.li){
+            const o=li[LIVE.li], n=li[ci];
+            if(o) o.els.forEach(e=>{ e.setAttribute('fill',LIVE_LYR); e.setAttribute('font-weight','normal'); });
+            if(n) n.els.forEach(e=>{ e.setAttribute('fill',LIVE_COL); e.setAttribute('font-weight','bold'); });
+            LIVE.li=ci;
         }
     }
     const act=LIVE.heads.filter(h=>h.u<=u+1e-6&&u<h.e-1e-6);
@@ -4684,7 +4743,8 @@ function pbBuildScore(opts){
             const nxt=i<ps.length-1?ps[i+1]:(m+1)*M, gap=nxt-p;
             let left=0, dots=0;
             staves.forEach(st=>st.ev.forEach(ev=>{ if(ev.pos===p&&ev.m===m){ if(!ev.rest) left=Math.max(left,ev.leftExtra); if(pbDotted(ev.len)) dots=6; } }));
-            return {pos:p,gap,left,base:14+5.5*Math.sqrt(gap)+dots};
+            const lw=opts.lyrW?opts.lyrW(m*M+p):0;
+            return {pos:p,gap,left,base:Math.max(14+5.5*Math.sqrt(gap)+dots,lw)};
         });
         measures.push({m,cols});
     }
@@ -4710,7 +4770,7 @@ function pbBuildScore(opts){
         let minD=1e9; evs.forEach(ev=>{ if(!ev.rest) ev.notes.forEach(h=>{ minD=Math.min(minD,h.d); }); });
         const low=minD<1e9?Math.max(0,(staves[0].base-minD))*SP/2:0;
         sys.nExtra=Math.max(30,low+30,evs.some(ev=>ev.o8==='vb')?low+44:0);
-        sys.h = MODE==='nota' ? 44+TOPX+4*SP+34+22 : MODE==='tab' ? 44+EXTRA+TABH+52 : 44+4*SP+sys.nExtra+EXTRA+TABH+34;
+        sys.h = MODE==='nota' ? 44+TOPX+4*SP+34+22 : MODE==='tab' ? 44+EXTRA+TABH+52+((opts.lyrN||0)?(opts.lyrN*LIVE_LH+4):0) : 44+4*SP+sys.nExtra+EXTRA+TABH+34;
     });
     const svgs=[]; let page=null, y=0, pageNo=0;
     const newPage=()=>{
