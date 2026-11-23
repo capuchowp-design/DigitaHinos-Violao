@@ -56,3 +56,14 @@ No Acompanhamento o violão toca só as cifras e o **soprano toca ao fundo** (fl
 - A distância entre as notas da tablatura aumenta onde a sílaba é larga, para as letras não se sobreporem.
 - A sílaba que está soando fica em laranja e negrito, junto com o cursor.
 - Com letra, a tela mostra uma linha maior de cada vez (para ficar legível); sem letra e com espaço, continua mostrando a próxima linha embaixo.
+
+## v28: publicação (Play / APK / PWA) e modo leve
+- **Três canais, um só código.** O arquivo `pro-config.js` guarda as configurações. O workflow *Gerar APK / AAB (Violão)* tem a opção `canal`:
+  - `play` → **.aab** para a Google Play: cobrança só pelo Google Play Billing (produto `pro_desbloqueio`), anúncio premiado do AdMob (libera 1 hino por 1 h), hinos 1 a 5 grátis, **sem Pix**.
+  - `apkpure` → **.apk** com **Pix** (código de uso único validado na planilha), hinos 1 a 50 grátis, sem anúncios.
+  - PWA (GitHub Pages) → mesmo modo Pix do APK.
+- **Modo leve (⚡ no topo):** liga sozinho em celulares/tablets e em aparelhos com pouca memória/poucos núcleos. Desliga o reverb, tira os brilhos do desenho (`shadowBlur`) e o desfoque de fundo, limita a animação a ~30 quadros/s (~15 na tela de espera) e reduz a resolução do canvas. O som usa buffer maior e agenda as notas no relógio do áudio com 1,5 s de antecedência, então não picota se a tela travar. Segure o ⚡ por 1 s para ver o diagnóstico de áudio.
+- **Sons dentro do app:** no GitHub, **Actions → "Baixar sons do violão (rodar 1 vez)" → Run workflow**. Ele baixa violão (nylon e aço), flauta, violino e harmônio, converte para mono/MP3 leve e grava `samples/` (o `vendor/Tone.js` já vem no projeto). Depois, mude o `CACHE_NAME` no `sw.js` e gere o app de novo. Sem a pasta `samples/`, o app baixa da internet como antes.
+- Créditos dos sons: tonejs-instruments, CC-BY 3.0 (https://github.com/nbrosowsky/tonejs-instruments).
+- Ícones: web/PWA na raiz (`icon-*.png`), Android em `android-icons/` (copiados no build), ficha da Play em `design/` (`icone-playstore-512.png` e `feature-graphic-1024x500.png`).
+- Passo a passo completo: `PUBLICAR.md`.

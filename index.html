@@ -9,10 +9,45 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192x192.png">
     <meta name="theme-color" content="#6fe0a8">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Tone.js: usa a cópia local (vendor/Tone.js, funciona offline) e, se ela não existir, baixa do CDN -->
+    <script src="vendor/Tone.js"></script>
+    <script>window.Tone||document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"><\/script>');</script>
+    <script>
+    // ===== DESEMPENHO: "modo leve" para celulares fracos =====
+    // Automático (pouca memória / poucos núcleos). O botão ⚡ no topo força ligado/desligado e guarda a escolha.
+    window.LITE=(function(){
+        try{ var s=localStorage.getItem('vb-lite'); if(s==='1') return true; if(s==='0') return false; }catch(e){}
+        var mem=navigator.deviceMemory||0, cores=navigator.hardwareConcurrency||0;
+        var celular=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'');   // celulares/tablets: leve por padrao (o botao ⚡ desliga)
+        return celular||(mem>0&&mem<=2)||(cores>0&&cores<=4);
+    })();
+    // Áudio: buffer grande ("playback") + antecedência maior no agendamento das notas.
+    // Evita os "picotes" quando o celular demora a desenhar um quadro ou o processador está no limite.
+    try{
+        var LA=window.LITE?0.6:0.25;
+        var LAT='playback'; try{ var lv=localStorage.getItem('vb-lat'); if(lv==='interactive'||lv==='balanced'||lv==='playback') LAT=lv; }catch(e){}
+        window.VB_LAT=LAT;
+        var ctx=new Tone.Context({latencyHint:LAT, lookAhead: LA});
+        Tone.setContext(ctx);
+        ctx.lookAhead = LA;
+        try{ ctx.rawContext.addEventListener('statechange',function(){ if(ctx.rawContext.state!=='running'&&!document.hidden){ try{ ctx.rawContext.resume(); }catch(e){} } }); }catch(e){}
+        document.addEventListener('visibilitychange',function(){ if(!document.hidden&&ctx.rawContext.state!=='running'){ try{ ctx.rawContext.resume(); }catch(e){} } });
+    }catch(e){ console.warn('contexto de áudio padrão', e); }
+    // Desenho: sombras/brilhos (shadowBlur) são o recurso mais pesado do canvas em celular fraco
+    if(window.LITE&&window.CanvasRenderingContext2D){
+        try{
+            var d=Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype,'shadowBlur');
+            if(d&&d.set) Object.defineProperty(CanvasRenderingContext2D.prototype,'shadowBlur',{configurable:true,enumerable:d.enumerable,get:d.get,set:function(){ d.set.call(this,0); }});
+        }catch(e){}
+    }
+    </script>
+    <script>try{ if(window.LITE) document.documentElement.classList.add("lite"); }catch(e){}</script>
     <script src="pro-config.js"></script>
     <style>
         @import url('https://cdn.jsdelivr.net/fontsource/fonts/inter@5/latin.css');
+
+        /* Modo leve: sem desfoque de fundo (backdrop-filter pesa muito em GPU fraca) */
+        html.lite *{ backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
 
         /* ===== THEME VARIABLES ===== */
         :root {
@@ -657,6 +692,7 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
         <span class="file-name" id="fileName"></span>
         <button class="tab-btn" id="proBtn" title="Modo Pro: todos os hinos completos">⭐ Pro</button>
         <button class="tab-btn" id="hinosBtn" title="Biblioteca de hinos">📖 <span>Hinos</span></button>
+        <button class="theme-btn" id="liteBtn" title="Modo leve: para celulares fracos (som sem picotar)">⚡</button>
         <button class="theme-btn" id="themeBtn" title="Alternar modo claro/escuro">🌙</button>
         <label class="file-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -691,10 +727,12 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
                     <button class="welcome-compose" onclick="switchView('score')">✏ Compor</button>
                 </div>
                 <div class="support-btns" style="margin-top:12px;">
+                    <!--PIX-START-->
                     <button class="btn-pix" id="btnPix">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
                         PIX — Apoiar
                     </button>
+                    <!--PIX-END-->
                     <button class="btn-install hidden" id="btnInstall">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Instalar App
@@ -702,6 +740,7 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
                 </div>
             </div>
 
+            <!--PIX-START-->
             <!-- PIX MODAL -->
             <div id="pixModal" class="hidden">
                 <div class="pix-box">
@@ -718,6 +757,7 @@ body.light #tmPage .ch-cell span{color:#8a5a00;}
                     <button class="pix-close" id="btnClosePix">Fechar</button>
                 </div>
             </div>
+            <!--PIX-END-->
 
             <div class="drop-overlay" id="dropOverlay">
                 <div class="drop-message">
@@ -1480,11 +1520,19 @@ function toast(msg,type='error'){const t=type==='error'?errorToast:successToast;
 let VG_TYPE='nylon'; try{ const t=localStorage.getItem('vgType'); if(t==='aco'||t==='nylon') VG_TYPE=t; }catch(e){}
 const VG_FOLDER={nylon:'guitar-nylon',aco:'guitar-acoustic'};
 function vgSources(){ const f=VG_FOLDER[VG_TYPE]; return [
+    './samples/'+f+'/',   // cópia dentro do app (pasta samples/, gerada pelo workflow "Baixar sons"): sem internet, carrega rápido
     'https://nbrosowsky.github.io/tonejs-instruments/samples/'+f+'/',
     'https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/'+f+'/'
 ]; }
 // Sondagem: só usa as amostras que realmente existem no servidor (nomes com 's' = sustenido)
 async function guitarUrls(base){
+    if(!/^https?:/i.test(base)){   // pasta local: lê samples/<instrumento>/index.json  ({"A3":"A3.mp3",...})
+        const r=await fetch(base+'index.json',{cache:'no-cache'});
+        if(!r.ok) throw new Error('sem amostras locais');
+        const j=await r.json();
+        if(!j||typeof j!=='object'||!Object.keys(j).length) throw new Error('index.json vazio');
+        return j;
+    }
     const names=[];
     for(let o=1;o<=6;o++) ['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B'].forEach(n=>names.push(n+o));
     const ok=await Promise.all(names.map(n=>fetch(base+n+'.mp3',{method:'HEAD'}).then(r=>r.ok?n:null).catch(()=>null)));
@@ -1511,9 +1559,11 @@ async function getOutChain(){
     let head=Tone.getDestination();
     try{
         const limiter=new Tone.Limiter(-1).connect(head); head=limiter;
-        const reverb=new Tone.Reverb({decay:2.2,preDelay:0.012,wet:0.16}).connect(head);
-        await reverb.generate();
-        head=reverb;
+        if(!window.LITE){   // reverb (convolução) é pesado: no modo leve fica desligado
+            const reverb=new Tone.Reverb({decay:2.2,preDelay:0.012,wet:0.16}).connect(head);
+            await reverb.generate();
+            head=reverb;
+        }
     }catch(e){}
     outChain=head; return head;
 }
@@ -1524,7 +1574,7 @@ async function loadPianoFrom(base,out){
         const t=setTimeout(()=>{ if(!done){ done=true; reject(new Error('timeout')); } },45000);
         let smp;
         try{
-            smp=new Tone.Sampler({ urls, baseUrl:base, release:0.8,
+            smp=new Tone.Sampler({ urls, baseUrl:base, release:(window.LITE?0.5:0.8),
                 onload:()=>{ if(done){ try{smp.dispose();}catch(e){} return; } done=true; clearTimeout(t); resolve(smp); },
                 onerror:err=>{ if(!done){ done=true; clearTimeout(t); try{smp.dispose();}catch(e){} reject(err||new Error('erro')); } }
             }).connect(out);
@@ -1552,7 +1602,7 @@ function initSampler(){
             for(const base of vgSources()){
                 try{
                     const piano=await loadPianoFrom(base,out);
-                    state.piano=piano; applyVolume();
+                    state.piano=piano; window._sampBase=base; applyVolume();
                     const old=state.synth;
                     state.sampler=piano; state.samplerReady=true;
                     if(old){ setTimeout(()=>{ try{old.releaseAll();old.dispose();}catch(e){} state.synth=null; },3000); }
@@ -1576,7 +1626,7 @@ window.addEventListener('online',()=>{ if(!state.piano){ samplerPromise=null; in
 
 // ======================== CANVAS RESIZE ========================
 function resizeCanvases(){
-    const dpr=window.devicePixelRatio||1;
+    const dpr=Math.min(window.devicePixelRatio||1, window.LITE?1.5:2.5);   // menos pixels = menos trabalho por quadro
     const mr=canvasContainer.getBoundingClientRect();
     mainCanvas.width=mr.width*dpr; mainCanvas.height=mr.height*dpr;
     mainCanvas.style.width=mr.width+'px'; mainCanvas.style.height=mr.height+'px';
@@ -1947,7 +1997,7 @@ async function vgLoadBg(name){
     if(BG.name===name&&BG.smp) return;
     BG.name=name; BG.smp=null;
     let out; try{ out=await getOutChain(); }catch(e){ out=Tone.getDestination(); }
-    for(const root of ['https://nbrosowsky.github.io/tonejs-instruments/samples/','https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/']){
+    for(const root of ['./samples/','https://nbrosowsky.github.io/tonejs-instruments/samples/','https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/']){
         try{ const smp=await loadPianoFrom(root+name+'/',out); if(BG.name===name){ BG.smp=smp; applyVolume(); } else { try{smp.dispose();}catch(e){} } return; }catch(e){}
     }
 }
@@ -2111,7 +2161,7 @@ function loadMidiFile(file){
 // ======================== MODO PRO (grátis x pro) ========================
 // Grátis: todos os hinos, mas só PRO_CFG.previewSec s de reprodução (qualquer voz); hinos 1..freeHinos completos.
 // Pro: tudo liberado, ativado com um código de uso único (1 código = 1 aparelho) validado numa planilha Google (Apps Script).
-const PRO_CFG=window.PRO_CFG||{app:'app',scriptUrl:'',pixKey:'',pixName:'',pixCity:'',price:0,whatsapp:'',freeHinos:5,previewSec:15};
+const PRO_CFG=window.PRO_CFG||{app:'app',modo:'pix',produtoId:'pro_desbloqueio',scriptUrl:'',pixKey:'',pixName:'',pixCity:'',price:0,whatsapp:'',freeHinos:5,previewSec:15};
 const PRO={ok:false,code:'',dev:'',last:0,native:false,devId:''};
 function proSave(){ try{ if(PRO.ok) localStorage.setItem('proState',JSON.stringify({code:PRO.code,dev:PRO.dev,last:PRO.last})); else localStorage.removeItem('proState'); }catch(e){} }
 function proLoad(){ try{ const s=JSON.parse(localStorage.getItem('proState')||'null'); if(s&&s.code){ PRO.ok=true; PRO.code=s.code; PRO.dev=s.dev||''; PRO.last=s.last||0; } }catch(e){} }
@@ -2151,7 +2201,102 @@ async function proActivate(raw){
     if(r&&r.ok){ PRO.ok=true; PRO.code=code.toUpperCase(); PRO.dev=dev; PRO.last=Date.now(); proSave(); proRefresh(); return {ok:true,status:r.status}; }
     return {ok:false,msg:PRO_MSG[r&&r.erro]||'Não foi possível ativar.'};
 }
+// ---- Anúncio premiado (AdMob, só no modo 'play'): libera UM hino por PRO_CFG.adHoras hora(s); PDF continua só Pro ----
+function proAdMap(){ if(!PRO.ad){ try{ PRO.ad=JSON.parse(localStorage.getItem('proAd')||'{}')||{}; }catch(e){ PRO.ad={}; } } return PRO.ad; }
+function proAdActive(n){ const t=proAdMap()[n]; return !!t&&Date.now()<t; }
+function proAdSave(){ try{ const m=proAdMap(), now=Date.now(); Object.keys(m).forEach(k=>{ if(m[k]<now) delete m[k]; }); localStorage.setItem('proAd',JSON.stringify(m)); }catch(e){} }
+function proAds(){ try{ const C=window.Capacitor; return (PRO_CFG.modo==='play'&&PRO_CFG.adRewardedId&&C&&C.isNativePlatform&&C.isNativePlatform()&&C.Plugins&&C.Plugins.AdMob)||null; }catch(e){ return null; } }
+let proAdInit=null;
+function proAdStart(){
+    if(proAdInit) return proAdInit;
+    const A=proAds();
+    proAdInit=(async()=>{
+        await A.initialize({initializeForTesting:!!PRO_CFG.adsTeste});
+        try{ const ci=await A.requestConsentInfo(); if(ci&&ci.isConsentFormAvailable&&String(ci.status).toUpperCase()==='REQUIRED') await A.showConsentForm(); }catch(e){}   // consentimento (UE/Reino Unido), se configurado no AdMob
+    })().catch(e=>{ proAdInit=null; throw e; });
+    return proAdInit;
+}
+// resolve se o usuário assistiu até o fim (hino liberado); lança erro caso contrário
+async function proAdWatch(n){
+    const A=proAds(); if(!A) throw new Error('indisponivel');
+    await proAdStart();
+    let rewarded=false; const subs=[];
+    try{
+        try{ subs.push(await A.addListener('onRewardedVideoAdReward',()=>{ rewarded=true; })); }catch(e){}
+        await A.prepareRewardVideoAd({adId:PRO_CFG.adRewardedId,isTesting:!!PRO_CFG.adsTeste});
+        const r=await A.showRewardVideoAd();
+        if(r&&(r.amount!==undefined||r.type!==undefined)) rewarded=true;
+    } finally { subs.forEach(sb=>{ try{ sb.remove(); }catch(e){} }); }
+    if(!rewarded) throw new Error('nao_assistiu');
+    proAdMap()[n]=Date.now()+(PRO_CFG.adHoras||1)*3600e3; proAdSave();
+}
+// ---- Google Play Billing (modo 'play': app instalado pela Play Store) ----
+// A Play guarda quem comprou: o Pro volta sozinho ao reinstalar ou trocar de aparelho com a mesma conta Google.
+function proBilling(){ try{ const C=window.Capacitor; return (C&&C.isNativePlatform&&C.isNativePlatform()&&C.Plugins&&C.Plugins.NativePurchases)||null; }catch(e){ return null; } }
+function proPlay(){ return PRO_CFG.modo==='play'&&!!proBilling(); }
+// true/false se conseguiu consultar a Play; lança erro se não conseguiu (sem conexão etc.)
+async function proPlayHas(){
+    const B=proBilling();
+    const r=await B.getPurchases({productType:'inapp'});
+    const list=Array.isArray(r)?r:(r&&r.purchases)||[];
+    return list.some(p=>{ if(!p||p.productIdentifier!==PRO_CFG.produtoId) return false; const st=String(p.purchaseState==null?'':p.purchaseState).toUpperCase(); return st!=='2'&&st!=='PENDING'; });
+}
+function proPlayOn(){ PRO.ok=true; PRO.code='GOOGLE PLAY'; PRO.dev=''; PRO.last=Date.now(); proSave(); proRefresh(); }
+async function proInitPlay(){
+    proLoad(); proRefresh();
+    try{
+        const has=await proPlayHas();
+        if(has&&!PRO.ok) proPlayOn();
+        else if(!has&&PRO.ok){ PRO.ok=false; proSave(); proRefresh(); }   // reembolso/estorno
+    }catch(e){}                                                              // sem conexão com a Play: mantém o que está salvo
+}
+async function proRenderPlay(){
+    const box=document.getElementById('proBody'); if(!box) return;
+    if(PRO.ok){
+        box.innerHTML='<div class="pro-ok">✓ Pro ativo</div><p class="pro-p">Todos os hinos estão liberados, completos e com qualquer voz, e a partitura/tablatura pode ser baixada em PDF.</p><p class="pro-p pro-small">A compra fica ligada à sua conta Google. Se reinstalar o app ou trocar de aparelho, use “Restaurar compra”.</p><div class="pro-row"><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div><div class="pro-msg" id="proMsg"></div>';
+    } else {
+        const msgTop=proReason==='pdf'?'Baixar a partitura e a tablatura em PDF é um recurso Pro.':proReason==='fim'?'Fim da prévia de '+PRO_CFG.previewSec+' segundos.':proReason==='seek'?'A prévia grátis toca só os primeiros '+PRO_CFG.previewSec+' segundos.':'';
+        const canAd=!!proAds()&&proReason!=='pdf'&&state.hinoN!=null&&state.hinoN>PRO_CFG.freeHinos&&!proAdActive(state.hinoN);
+        let price=''; try{ const r=await proBilling().getProduct({productIdentifier:PRO_CFG.produtoId,productType:'inapp'}); price=(r&&r.product&&r.product.priceString)||''; }catch(e){}
+        box.innerHTML=(msgTop?'<div class="pro-top">'+msgTop+'</div>':'')+
+          '<p class="pro-p"><b>Grátis:</b> hinos 1 a '+PRO_CFG.freeHinos+' completos e '+PRO_CFG.previewSec+' s de prévia nos demais (todas as vozes).<br><b>Pro:</b> todos os hinos completos, com qualquer voz, e download da partitura e da tablatura em PDF (todas as vozes ou só a que você escolher). Pagamento único pela Google Play'+(price?' · <b></b>':'')+'.</p>'+
+          '<div class="pro-row"><button class="pro-btn" id="proBuy">Comprar Pro</button><button class="pro-btn sec" id="proRestore">Restaurar compra</button></div>'+
+          (canAd?'<div class="pro-row"><button class="pro-btn sec" id="proAdBtn">▶ Ver anúncio e liberar o hino '+state.hinoN+' por '+(PRO_CFG.adHoras||1)+' h</button></div><div class="pro-small">Só a reprodução com a animação. O PDF da partitura e da tablatura é só para o Pro.</div>':'')+
+          '<div class="pro-msg" id="proMsg"></div>';
+        if(price) box.querySelector('p b:last-child').textContent=price;
+        const adb=document.getElementById('proAdBtn');
+        if(adb) adb.onclick=async()=>{
+            const m=document.getElementById('proMsg'), n=state.hinoN; m.textContent='Carregando o anúncio…'; m.className='pro-msg'; adb.disabled=true;
+            try{
+                await proAdWatch(n);
+                toast('Hino '+n+' liberado por '+(PRO_CFG.adHoras||1)+' h ✓','success'); proClose(); proRefresh();
+            }catch(e){
+                adb.disabled=false;
+                m.textContent=(e&&e.message==='nao_assistiu')?'Assista ao anúncio até o fim para liberar o hino.':'Anúncio indisponível agora. Verifique a internet e tente de novo mais tarde.'; m.className='pro-msg err';
+            }
+        };
+        document.getElementById('proBuy').onclick=async()=>{
+            const m=document.getElementById('proMsg'), btn=document.getElementById('proBuy'); m.textContent='Abrindo a Google Play…'; m.className='pro-msg'; btn.disabled=true;
+            try{
+                await proBilling().purchaseProduct({productIdentifier:PRO_CFG.produtoId,productType:'inapp',quantity:1});
+                proPlayOn(); toast('Pro ativado! Obrigado pelo apoio ✓','success'); proRender();
+            }catch(e){
+                btn.disabled=false; const t=String((e&&e.message)||e);
+                m.textContent=/cancel/i.test(t)?'Compra cancelada.':'Não foi possível concluir a compra. Tente de novo.'; m.className='pro-msg err';
+            }
+        };
+    }
+    const rb=document.getElementById('proRestore');
+    if(rb) rb.onclick=async()=>{
+        const m=document.getElementById('proMsg'); m.textContent='Consultando a Google Play…'; m.className='pro-msg';
+        try{
+            if(await proPlayHas()){ proPlayOn(); toast('Compra restaurada ✓','success'); proRender(); }
+            else { m.textContent='Nenhuma compra do Pro encontrada nesta conta Google.'; m.className='pro-msg err'; }
+        }catch(e){ m.textContent='Sem conexão com a Google Play. Tente de novo.'; m.className='pro-msg err'; }
+    };
+}
 async function proInit(){
+    if(proPlay()) return proInitPlay();
     proLoad(); proRefresh();
     try{
         const dev=await proDevice();
@@ -2175,6 +2320,7 @@ async function proInit(){
 function proLimit(){
     if(PRO.ok) return Infinity;
     const n=state.hinoN; if(n==null||n<=PRO_CFG.freeHinos) return Infinity;
+    if(proAdActive(n)) return Infinity;                 // hino liberado por anúncio (tempo limitado)
     return PRO_CFG.previewSec;
 }
 // ---- Pix "copia e cola" (BR Code estático, com valor) ----
@@ -2203,6 +2349,7 @@ let proReason='';
 function proPaywall(reason){ proReason=reason||''; document.getElementById('mPro').hidden=false; document.body.style.overflow='hidden'; proRender(); }
 function proClose(){ document.getElementById('mPro').hidden=true; document.body.style.overflow=''; }
 async function proRender(){
+    if(proPlay()) return proRenderPlay();
     const box=document.getElementById('proBody'); if(!box) return;
     const price=PRO_CFG.price>0?'R$ '+Number(PRO_CFG.price).toFixed(2).replace('.',','):'';
     if(PRO.ok){
@@ -2245,7 +2392,7 @@ function renderHinos(){
     const list=HINOS.filter(h=>!q||String(h.n).padStart(3,'0').includes(q.replace(/^0+(?=\d)/,''))||String(h.n)===q||normTxt(h.t).includes(q));
     if(!list.length){ box.textContent='Nenhum hino encontrado.'; return; }
     const fr=document.createDocumentFragment();
-    list.forEach(h=>{ const b=document.createElement('button'); b.className='hino-item'; const lock=!PRO.ok&&h.n>PRO_CFG.freeHinos; b.innerHTML='<b>'+String(h.n).padStart(3,'0')+'</b><span style="flex:1"></span>'+(lock?'<small style="opacity:.65;white-space:nowrap">🔒 '+PRO_CFG.previewSec+'s</small>':''); b.children[1].textContent=h.t; b.onclick=()=>openHino(h); fr.appendChild(b); });
+    list.forEach(h=>{ const b=document.createElement('button'); b.className='hino-item'; const lock=!PRO.ok&&h.n>PRO_CFG.freeHinos&&!proAdActive(h.n); b.innerHTML='<b>'+String(h.n).padStart(3,'0')+'</b><span style="flex:1"></span>'+(lock?'<small style="opacity:.65;white-space:nowrap">🔒 '+PRO_CFG.previewSec+'s</small>':''); b.children[1].textContent=h.t; b.onclick=()=>openHino(h); fr.appendChild(b); });
     box.appendChild(fr);
 }
 async function openHinos(){
@@ -2309,14 +2456,13 @@ async function startPlayback(){
     playIcon.style.display='none'; pauseIcon.style.display='block';
     playBtn.classList.add('active');
 
-    // Cancel any previous transport events
-    Tone.Transport.cancel();
-    Tone.Transport.stop();
-
+    // Agendador no relógio do ÁUDIO (não depende da thread principal para cada nota):
+    // a cada ~120 ms entrega ao áudio as notas dos próximos 1,5 s. Se a tela travar um pouco,
+    // as notas já entregues continuam tocando certinhas (antes, nota atrasada saía cortada ou muda).
+    schedStop();
     const offset=state.pausedAt;
     const spd=state.speed;
-
-    // Schedule all notes relative to Transport start
+    const list=[];
     state.notes.forEach(note=>{
         let t0=note.startTime, remain=note.duration;
         if(note.startTime<offset){
@@ -2325,19 +2471,36 @@ async function startPlayback(){
             t0=offset; remain=note.endTime-offset;
         }
         if(t0>=proLimit()) return;
-        const tStart=(t0-offset)/spd;
-        const dur=Math.max(0.05, remain/spd);
-        Tone.Transport.schedule(time=>{
-            if(!state.isPlaying||!state.sampler||!state.samplerReady) return;
-            try { const smp=(note.bg&&BG.smp)?BG.smp:state.sampler; smp.triggerAttackRelease(nname(note.midi), dur, time, note.velocity); } catch(e){}
-        }, tStart);
+        list.push({note,t0,remain});
     });
-
-    Tone.Transport.start('+0.05');
+    list.sort((a,b)=>a.t0-b.t0);
+    const rc=Tone.getContext();
+    _T0=rc.currentTime+0.15;
+    let idx=0;
+    const pump=()=>{
+        if(!state.isPlaying||!state.sampler||!state.samplerReady) return;
+        const now=rc.currentTime, horizon=now+1.5;
+        const D=window._dbg||(window._dbg={sched:0,late:0,skip:0});
+        while(idx<list.length){
+            const it=list[idx];
+            let at=_T0+(it.t0-offset)/spd;
+            if(at>horizon) break;
+            idx++;
+            const dur=Math.max(0.05,it.remain/spd);
+            if(at<now+0.01){ if(now-at>0.5){ D.skip++; continue; } D.late++; at=now+0.01; }   // muito atrasada: pula; pouco: toca já
+            D.sched++;
+            try{ const smp=(it.note.bg&&BG.smp)?BG.smp:state.sampler; smp.triggerAttackRelease(nname(it.note.midi), dur, at, it.note.velocity); }catch(e){}
+        }
+    };
+    pump();
+    _sched=setInterval(pump,120);
     animate();
 }
 
+let _sched=null, _T0=0;
+function schedStop(){ if(_sched){ clearInterval(_sched); _sched=null; } }
 function clearAudio(){
+    schedStop();
     Tone.Transport.cancel();
     Tone.Transport.stop();
     if(state.sampler&&state.samplerReady){
@@ -2383,12 +2546,18 @@ function seekTo(newTime){
 }
 
 // ======================== ANIMATION (sync via Transport) ========================
+let _lastDraw=0;
 function animate(){
     if(!state.isPlaying) return;
-    // Transport.seconds = time elapsed since Transport.start(), not scaled by speed
-    state.currentTime = state.pausedAt + Tone.Transport.seconds * state.speed;
+    // o relógio é o do áudio (o mesmo que agenda as notas), descontando a latência de saída
+    { const rc=Tone.getContext(); state.currentTime = state.pausedAt + Math.max(0, rc.currentTime - _T0 - (rc.rawContext.outputLatency||0)) * state.speed; }
     if(state.currentTime>=state.duration){ stopPlayback(); return; }
     if(state.currentTime>=proLimit()){ stopPlayback(); proPaywall('fim'); return; }
+    if(window.LITE){   // modo leve: desenha no máx. ~30 quadros/s (o som continua exato)
+        const t=performance.now();
+        if(t-_lastDraw<32){ state.animFrameId=requestAnimationFrame(animate); return; }
+        _lastDraw=t;
+    }
     updateUI(); drawScene();
     state.animFrameId=requestAnimationFrame(animate);
 }
@@ -4185,6 +4354,21 @@ themeBtn.addEventListener('click',()=>{
     if(state.midiLoaded) drawScene(); else { resizeCanvases(); }
 });
 
+// ======================== MODO LEVE (celulares fracos) ========================
+(function initLite(){
+    const b=document.getElementById('liteBtn'); if(!b) return;
+    const paint=()=>{ b.style.opacity=window.LITE?'1':'.45'; b.style.boxShadow=window.LITE?'0 0 0 2px #6fe0a8 inset':'none'; b.setAttribute('aria-pressed',window.LITE?'true':'false'); };
+    paint();
+    b.addEventListener('click',()=>{
+        const novo=!window.LITE;
+        const msg=novo?'Ligar o MODO LEVE?\nDeixa o app mais leve e o som sem picotar em celulares fracos (sem reverb e com animação mais simples).\n\nO app será reiniciado.'
+                      :'Desligar o MODO LEVE?\nVolta o visual completo e o reverb.\n\nO app será reiniciado.';
+        if(!confirm(msg)) return;
+        try{ localStorage.setItem('vb-lite',novo?'1':'0'); }catch(e){}
+        location.reload();
+    });
+})();
+
 // ======================== SERVICE WORKER ========================
 if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
@@ -4211,7 +4395,9 @@ rebuildVoiceTabs();
 initSampler(); // start loading samples in background
 
 // Idle animation
-function idleDraw(){
+let _idleLast=0;
+function idleDraw(ts){
+    if(window.LITE){ if(document.hidden||(ts-_idleLast)<66){ requestAnimationFrame(idleDraw); return; } _idleLast=ts; }   // modo leve: ~15 quadros/s e para quando o app está em segundo plano
     if(!state.midiLoaded){
         const w=canvasContainer.getBoundingClientRect().width;
         const h=canvasContainer.getBoundingClientRect().height;
@@ -4237,6 +4423,7 @@ function idleDraw(){
 }
 idleDraw();
 
+/*PIX-JS-START*/
 // ======================== PIX MODAL ========================
 const PIX_KEY = 'meuidwp@duck.com';
 
@@ -4258,6 +4445,7 @@ document.getElementById('btnCopyPix').addEventListener('click', () => {
         setTimeout(() => { btn.innerHTML = orig; }, 2000);
     });
 });
+/*PIX-JS-END*/
 
 // ======================== PWA INSTALL ========================
 let deferredInstallPrompt = null;
@@ -5760,6 +5948,55 @@ window.tmFromScore=fromScore;
 window.tmShow=()=>{ MC=maxCols(); render(); };
 buildFretboard();
 if(scoreNotes.length||scoreChords.length) fromScore(); else { ensure(); save(); render(); }
+})();
+</script>
+<script>
+/* ===== DIAGNÓSTICO DE ÁUDIO (segure o botão ⚡ por ~1 s) =====
+   Mostra o estado real do áudio no aparelho e deixa testar outras configurações sem recompilar. */
+(function(){
+ try{
+  var btn=document.getElementById('liteBtn'); if(!btn) return;
+  var box=null, rafId=0, fps=0, fc=0, fl=performance.now(), stalls=[], lastT=performance.now();
+  setInterval(function(){ var n=performance.now(), d=n-lastT-50; lastT=n; if(d>0) stalls.push([n,d]); while(stalls.length&&n-stalls[0][0]>5000) stalls.shift(); },50);
+  function maxStall(){ var m=0; stalls.forEach(function(s){ if(s[1]>m) m=s[1]; }); return Math.round(m); }
+  function nat(){ try{ var C=window.Capacitor; return !!(C&&C.isNativePlatform&&C.isNativePlatform()); }catch(e){ return false; } }
+  function txt(){
+    var rc=Tone.getContext(), raw=rc.rawContext, D=window._dbg||{sched:0,late:0,skip:0}, L=[];
+    var syn=(typeof state!=='undefined')&&state.synth&&state.sampler===state.synth;
+    L.push('Áudio: '+raw.state+' · '+raw.sampleRate+' Hz · dica='+(window.VB_LAT||'?'));
+    L.push('Latência base/saída: '+(raw.baseLatency||0).toFixed(3)+' / '+(raw.outputLatency||0).toFixed(3)+' s');
+    L.push('Som: '+(syn?'SINTETIZADOR (sem gravações!)':'gravações')+' · origem: '+(window._sampBase||'—'));
+    L.push('Modo leve: '+(window.LITE?'ligado':'desligado')+' · app nativo: '+(nat()?'sim':'não'));
+    L.push('Notas agendadas: '+D.sched+' · atrasadas: '+D.late+' · puladas: '+D.skip);
+    L.push('Travada máx. (5 s): '+maxStall()+' ms · quadros/s: '+fps);
+    try{ if(performance.memory) L.push('Memória JS: '+Math.round(performance.memory.usedJSHeapSize/1048576)+' MB'); }catch(e){}
+    L.push('Tocando: '+((typeof state!=='undefined'&&state.isPlaying)?'sim':'não'));
+    var m=/(Chrome|Version)\/[\d.]+/.exec(navigator.userAgent||''); L.push('WebView: '+(m?m[0]:'?'));
+    return L.join('\n');
+  }
+  function loop(){ fc++; var n=performance.now(); if(n-fl>=1000){ fps=fc; fc=0; fl=n; } if(box){ pre.textContent=txt(); rafId=requestAnimationFrame(loop); } }
+  var pre=null;
+  function hint(v){ try{ localStorage.setItem('vb-lat',v); }catch(e){} location.reload(); }
+  function open(){
+    if(box) return;
+    box=document.createElement('div');
+    box.style.cssText='position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:rgba(0,0,0,.9);color:#e8ddd0;font:11px/1.5 monospace;padding:10px;border-radius:10px;border:1px solid #2f7d5b';
+    pre=document.createElement('pre'); pre.style.cssText='margin:0 0 8px;white-space:pre-wrap;font:inherit'; box.appendChild(pre);
+    function b(label,fn){ var x=document.createElement('button'); x.textContent=label; x.style.cssText='margin:2px 4px 2px 0;padding:6px 9px;border-radius:6px;border:1px solid #2f7d5b;background:#2a1d10;color:#e8ddd0;font:11px sans-serif'; x.onclick=fn; box.appendChild(x); }
+    b('Latência: playback',function(){ hint('playback'); });
+    b('balanced',function(){ hint('balanced'); });
+    b('interactive',function(){ hint('interactive'); });
+    b('Zerar contadores',function(){ window._dbg={sched:0,late:0,skip:0}; stalls=[]; });
+    b('Fechar',close);
+    document.body.appendChild(box); loop();
+  }
+  function close(){ if(box){ box.remove(); box=null; cancelAnimationFrame(rafId); } }
+  var held=false, tm=null;
+  btn.addEventListener('pointerdown',function(){ held=false; clearTimeout(tm); tm=setTimeout(function(){ held=true; if(box) close(); else open(); },900); });
+  ['pointerup','pointerleave','pointercancel'].forEach(function(e){ btn.addEventListener(e,function(){ clearTimeout(tm); }); });
+  btn.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+  btn.addEventListener('click',function(e){ if(held){ e.stopImmediatePropagation(); e.preventDefault(); held=false; } },true);
+ }catch(e){ console.warn('diagnóstico',e); }
 })();
 </script>
 </body>
