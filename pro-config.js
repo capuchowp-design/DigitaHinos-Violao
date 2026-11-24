@@ -14,9 +14,8 @@ window.PRO_CFG = {
   previewSec: 15,                               // segundos de prévia nos demais hinos
 
   // ---- AdMob (só vale no modo 'play') ----
-  // ATENÇÃO: estes dois IDs são os de TESTE do Google. Antes do build de produção, crie o app "DigitaHinos Violão"
-  // no AdMob e troque pelos IDs dele (veja PUBLICAR.md, passo 3). O workflow se recusa a gerar produção com IDs de teste.
-  admobAppId: 'ca-app-pub-3940256099942544~3347511713',    // ID do APP no AdMob (formato ca-app-pub-...~...)
-  adRewardedId: 'ca-app-pub-3940256099942544/5224354917',  // ID do bloco de anúncio PREMIADO (formato ca-app-pub-.../...)
+  // IDs REAIS do app "DigitaHinos Violão" no AdMob (app + bloco premiado). O workflow recusa build de produção com IDs de teste do Google.
+  admobAppId: 'ca-app-pub-4518875317226768~9809120877',    // ID do APP no AdMob (formato ca-app-pub-...~...)
+  adRewardedId: 'ca-app-pub-4518875317226768/6999124703',  // ID do bloco de anúncio PREMIADO (formato ca-app-pub-.../...)
   adHoras: 1                                    // horas de hino liberado ao assistir o anúncio
 };
